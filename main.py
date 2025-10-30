@@ -1,32 +1,11 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Optional
+from flask import Flask, request, jsonify
 import logging
 
-app = FastAPI(title="Instagram Video Check API", version="1.0.0")
+app = Flask(__name__)
 
 # Logging sozlamalari
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Pydantic modellari
-class VideoCheckRequest(BaseModel):
-    video_url: str
-
-class VideoCheckResponse(BaseModel):
-    success: bool
-    has_text: bool = False
-    title: Optional[str] = None
-    error: Optional[str] = None
-
-class HashtagCheckRequest(BaseModel):
-    video_url: str
-    required_hashtag: str
-
-class HashtagCheckResponse(BaseModel):
-    success: bool
-    has_hashtag: bool = False
-    error: Optional[str] = None
 
 def extract_instagram_video_info(url: str):
     """
@@ -77,15 +56,32 @@ def check_text_in_content(content: str, required_text: str) -> bool:
         logger.error(f"Text check error: {str(e)}")
         return False
 
-@app.post("/check")
-async def check_video_text(request: VideoCheckRequest):
+@app.route('/check', methods=['POST'])
+def check_video_text():
     """
     Video havolasida kerakli hashtag borligini tekshirish
     """
     try:
-        logger.info(f"Video tekshirish so'rovi: {request.video_url}")
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'has_text': False,
+                'error': 'JSON ma\'lumotlari talab qilinadi'
+            }), 400
+            
+        video_url = data.get('video_url')
         
-        # YANGI: Hashtag formatida kerakli matn
+        if not video_url:
+            return jsonify({
+                'success': False,
+                'has_text': False,
+                'error': 'video_url maydoni talab qilinadi'
+            }), 400
+        
+        logger.info(f"Video tekshirish so'rovi: {video_url}")
+        
+        # Hashtag formatida kerakli matn
         REQUIRED_HASHTAGS = [
             "#Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring.",
             "#Telegramdagi", 
@@ -93,14 +89,14 @@ async def check_video_text(request: VideoCheckRequest):
         ]
         
         # Instagram video ma'lumotlarini olish
-        video_info = extract_instagram_video_info(request.video_url)
+        video_info = extract_instagram_video_info(video_url)
         
         if not video_info['success']:
-            return VideoCheckResponse(
-                success=False,
-                has_text=False,
-                error=video_info.get('error', 'Video ma\'lumotlarini olishda xatolik')
-            )
+            return jsonify({
+                'success': False,
+                'has_text': False,
+                'error': video_info.get('error', 'Video ma\'lumotlarini olishda xatolik')
+            }), 400
         
         # Kontentni yig'amiz (simulyatsiya)
         content = ""
@@ -112,38 +108,56 @@ async def check_video_text(request: VideoCheckRequest):
         # BARCHA hashtag larni tekshiramiz
         all_hashtags_found = all(check_text_in_content(content, hashtag) for hashtag in REQUIRED_HASHTAGS)
         
-        return VideoCheckResponse(
-            success=True,
-            has_text=all_hashtags_found,
-            title=video_info.get('title', 'Instagram video'),
-            error=None
-        )
+        return jsonify({
+            'success': True,
+            'has_text': all_hashtags_found,
+            'title': video_info.get('title', 'Instagram video'),
+            'error': None
+        })
         
     except Exception as e:
         logger.error(f"Video check error: {str(e)}")
-        return VideoCheckResponse(
-            success=False,
-            has_text=False,
-            error=f"Server xatosi: {str(e)}"
-        )
+        return jsonify({
+            'success': False,
+            'has_text': False,
+            'error': f"Server xatosi: {str(e)}"
+        }), 500
 
-@app.post("/check_hashtag")
-async def check_video_hashtag(request: HashtagCheckRequest):
+@app.route('/check_hashtag', methods=['POST'])
+def check_video_hashtag():
     """
     Video havolasida kerakli hashtag borligini tekshirish
     """
     try:
-        logger.info(f"Hashtag tekshirish so'rovi: {request.video_url}")
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'has_hashtag': False,
+                'error': 'JSON ma\'lumotlari talab qilinadi'
+            }), 400
+            
+        video_url = data.get('video_url')
+        required_hashtag = data.get('required_hashtag')
+        
+        if not video_url or not required_hashtag:
+            return jsonify({
+                'success': False,
+                'has_hashtag': False,
+                'error': 'video_url va required_hashtag maydonlari talab qilinadi'
+            }), 400
+        
+        logger.info(f"Hashtag tekshirish so'rovi: {video_url}")
         
         # Instagram video ma'lumotlarini olish
-        video_info = extract_instagram_video_info(request.video_url)
+        video_info = extract_instagram_video_info(video_url)
         
         if not video_info['success']:
-            return HashtagCheckResponse(
-                success=False,
-                has_hashtag=False,
-                error=video_info.get('error', 'Video ma\'lumotlarini olishda xatolik')
-            )
+            return jsonify({
+                'success': False,
+                'has_hashtag': False,
+                'error': video_info.get('error', 'Video ma\'lumotlarini olishda xatolik')
+            }), 400
         
         # Kontentni yig'amiz
         content = ""
@@ -153,39 +167,38 @@ async def check_video_hashtag(request: HashtagCheckRequest):
             content += video_info['description'] + " "
         
         # Hashtag ni tekshiramiz
-        has_required_hashtag = check_text_in_content(content, request.required_hashtag)
+        has_required_hashtag = check_text_in_content(content, required_hashtag)
         
-        return HashtagCheckResponse(
-            success=True,
-            has_hashtag=has_required_hashtag,
-            error=None
-        )
+        return jsonify({
+            'success': True,
+            'has_hashtag': has_required_hashtag,
+            'error': None
+        })
         
     except Exception as e:
         logger.error(f"Hashtag check error: {str(e)}")
-        return HashtagCheckResponse(
-            success=False,
-            has_hashtag=False,
-            error=f"Server xatosi: {str(e)}"
-        )
+        return jsonify({
+            'success': False,
+            'has_hashtag': False,
+            'error': f"Server xatosi: {str(e)}"
+        }), 500
 
-@app.get("/")
-async def root():
+@app.route('/')
+def root():
     """Asosiy sahifa"""
-    return {
+    return jsonify({
         "message": "Instagram Video Check API",
         "version": "1.0.0",
         "endpoints": {
             "POST /check": "Video hashtaglarini tekshirish",
             "POST /check_hashtag": "Video hashtag ini tekshirish"
         }
-    }
+    })
 
-@app.get("/health")
-async def health_check():
+@app.route('/health')
+def health_check():
     """Sog'lik tekshiruvi"""
-    return {"status": "healthy", "service": "Instagram Video Check API"}
+    return jsonify({"status": "healthy", "service": "Instagram Video Check API"})
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    app.run(host="0.0.0.0", port=8000, debug=False)
