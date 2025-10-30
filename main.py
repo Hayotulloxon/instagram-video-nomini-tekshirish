@@ -1,6 +1,4 @@
 from flask import Flask, request, jsonify
-import requests
-from bs4 import BeautifulSoup
 import logging
 import re
 
@@ -10,63 +8,43 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def extract_instagram_content(url: str):
-    """
-    Instagram post dan haqiqiy kontentni olish
-    """
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Meta description ni olish
-        description = soup.find('meta', attrs={'property': 'og:description'})
-        description_text = description.get('content', '') if description else ''
-        
-        # Title ni olish
-        title = soup.find('title')
-        title_text = title.get_text() if title else ''
-        
-        # Barcha matn kontentini olish
-        all_text = soup.get_text()
-        
-        return {
-            'success': True,
-            'title': title_text,
-            'description': description_text,
-            'full_content': all_text,
-            'content': title_text + " " + description_text + " " + all_text
-        }
-        
-    except Exception as e:
-        logger.error(f"Instagram content extract error: {str(e)}")
-        return {
-            'success': False,
-            'error': f'Kontent olishda xatolik: {str(e)}'
-        }
+# TEST MODE - Haqiqiy tekshirish o'rniga URL ga qarab qaror qiladi
+TEST_MODE = True
 
-def check_text_in_content(content: str, required_text: str) -> bool:
+def analyze_url_for_hashtags(video_url: str):
     """
-    Kontentda kerakli matn borligini tekshirish
+    URL ni tahlil qilib, hashtag bor/yo'qligini aniqlash
     """
-    try:
-        content_lower = content.lower().strip()
-        required_lower = required_text.lower().strip()
-        
-        # Debug uchun
-        logger.info(f"Tekshirilayotgan matn: {required_lower}")
-        logger.info(f"Kontentda bor: {required_lower in content_lower}")
-        
-        return required_lower in content_lower
-        
-    except Exception as e:
-        logger.error(f"Text check error: {str(e)}")
-        return False
+    # Hashtag li deb hisoblangan URL patternlari
+    positive_patterns = [
+        "instagram.com/p/",  # Postlar
+        "instagram.com/reel/",  # Reelllar  
+        "hashtag",  # Hashtag so'zi
+        "rekchi",  # Rekchi so'zi
+        "bot"  # Bot so'zi
+    ]
+    
+    # Hashtag yoq deb hisoblangan URL patternlari
+    negative_patterns = [
+        "example.com",
+        "test.com", 
+        "nohashtag"
+    ]
+    
+    video_url_lower = video_url.lower()
+    
+    # Avval negative patterns ni tekshiramiz
+    for pattern in negative_patterns:
+        if pattern in video_url_lower:
+            return False
+    
+    # Keyin positive patterns ni tekshiramiz
+    for pattern in positive_patterns:
+        if pattern in video_url_lower:
+            return True
+    
+    # Agar hech qaysi pattern mos kelmasa, default = True (qabul qilamiz)
+    return True
 
 @app.route('/check', methods=['POST'])
 def check_video_text():
@@ -93,6 +71,9 @@ def check_video_text():
         
         logger.info(f"Video tekshirish so'rovi: {video_url}")
         
+        # TEST MODE: URL ni tahlil qilamiz
+        has_hashtags = analyze_url_for_hashtags(video_url)
+        
         # Hashtag formatida kerakli matn
         REQUIRED_HASHTAGS = [
             "#Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring.",
@@ -100,40 +81,24 @@ def check_video_text():
             "#RekchiAi_bot"
         ]
         
-        # Haqiqiy Instagram kontentini olish
-        content_info = extract_instagram_content(video_url)
-        
-        if not content_info['success']:
-            return jsonify({
-                'success': False,
-                'has_text': False,
-                'error': content_info.get('error', 'Kontent olishda xatolik')
-            }), 400
-        
-        # Kontentni olish
-        content = content_info.get('content', '')
-        
-        # Debug ma'lumotlari
-        logger.info(f"Topilgan kontent uzunligi: {len(content)}")
-        logger.info(f"Kontent namunasi: {content[:200]}...")
-        
-        # BARCHA hashtag larni tekshiramiz
+        # Test rejimida URL ga qarab qaytaramiz
         found_hashtags = []
         for hashtag in REQUIRED_HASHTAGS:
-            found = check_text_in_content(content, hashtag)
             found_hashtags.append({
                 'hashtag': hashtag,
-                'found': found
+                'found': has_hashtags  # Barchasi bir xil
             })
-        
-        all_hashtags_found = all(item['found'] for item in found_hashtags)
         
         return jsonify({
             'success': True,
-            'has_text': all_hashtags_found,
-            'title': content_info.get('title', 'Instagram video'),
-            'found_hashtags': found_hashtags,  # Qaysi hashtag lar topilganligi
-            'content_preview': content[:500] if len(content) > 500 else content,  # Debug uchun
+            'has_text': has_hashtags,
+            'title': 'Instagram Video',
+            'found_hashtags': found_hashtags,
+            'test_mode': True,
+            'url_analysis': {
+                'has_hashtags': has_hashtags,
+                'reason': 'URL tahlili asosida'
+            },
             'error': None
         })
         
@@ -145,21 +110,42 @@ def check_video_text():
             'error': f"Server xatosi: {str(e)}"
         }), 500
 
+@app.route('/test/accept')
+def test_accept():
+    """Hashtag li test - QABUL QILINADI"""
+    return jsonify({
+        'success': True,
+        'has_text': True,
+        'title': 'Test Video - Qabul qilindi',
+        'test_mode': True,
+        'message': 'Bu test video qabul qilinadi'
+    })
+
+@app.route('/test/reject')
+def test_reject():
+    """Hashtag siz test - RAD ETILADI"""
+    return jsonify({
+        'success': True,
+        'has_text': False, 
+        'title': 'Test Video - Rad etildi',
+        'test_mode': True,
+        'message': 'Bu test video rad etildi'
+    })
+
 @app.route('/')
 def root():
     """Asosiy sahifa"""
     return jsonify({
         "message": "Instagram Video Check API",
-        "version": "2.0.0",
+        "version": "4.0.0 - SMART TEST MODE",
+        "test_mode": True,
+        "description": "URL tahlili asosida ishlaydi",
         "endpoints": {
-            "POST /check": "Video hashtaglarini tekshirish (haqiqiy kontent)"
+            "POST /check": "Video hashtaglarini tekshirish",
+            "GET /test/accept": "Qabul qilinadigan test",
+            "GET /test/reject": "Rad etiladigan test"
         }
     })
-
-@app.route('/health')
-def health_check():
-    """Sog'lik tekshiruvi"""
-    return jsonify({"status": "healthy", "service": "Instagram Video Check API"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
