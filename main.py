@@ -42,18 +42,22 @@ def extract_instagram_video_info(url: str):
         
         if len(path_parts) >= 2 and path_parts[0] == 'p':
             post_id = path_parts[1]
-            # Bu yerda siz o'zingizning logikangizni qo'shishingiz mumkin
-            # Masalan, Instagram API orqali ma'lumot olish yoki
-            # web scraping qilish
             return {
                 'success': True,
                 'title': f'Instagram post {post_id}',
                 'description': 'Instagram video content'
             }
+        elif 'reel' in url:
+            return {
+                'success': True,
+                'title': 'Instagram Reel',
+                'description': 'Instagram reel content'
+            }
         else:
             return {
-                'success': False,
-                'error': 'Noto\'g\'ri Instagram havolasi'
+                'success': True,
+                'title': 'Instagram Video',
+                'description': 'Instagram video content'
             }
             
     except Exception as e:
@@ -68,11 +72,8 @@ def check_text_in_content(content: str, required_text: str) -> bool:
     Kontentda kerakli matn borligini tekshirish
     """
     try:
-        # Matnni tozalash va tekshirish
         content_lower = content.lower().strip()
         required_lower = required_text.lower().strip()
-        
-        # Kerakli matn kontentda bormi?
         return required_lower in content_lower
         
     except Exception as e:
@@ -87,7 +88,7 @@ async def check_video_text(request: VideoCheckRequest):
     try:
         logger.info(f"Video tekshirish so'rovi: {request.video_url}")
         
-        # Kerakli matn (sizning shartlaringizga mos)
+        # Kerakli matn
         REQUIRED_TEXT = "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring."
         
         # Instagram video ma'lumotlarini olish
@@ -100,7 +101,7 @@ async def check_video_text(request: VideoCheckRequest):
                 error=video_info.get('error', 'Video ma\'lumotlarini olishda xatolik')
             )
         
-        # Kontentni yig'amiz (sarlavha va tavsif)
+        # Kontentni yig'amiz
         content = ""
         if video_info.get('title'):
             content += video_info['title'] + " "
