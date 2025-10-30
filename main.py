@@ -115,34 +115,32 @@ def check_video_text():
             'error': f"Server xatosi: {str(e)}"
         }), 500
 
-@app.route('/check_hashtag', methods=['POST'])
-def check_video_hashtag():
+# app.py faylida
+
+@app.post("/check", response_model=VideoCheckResponse)
+async def check_video_text(request: VideoCheckRequest):
     """
     Video havolasida kerakli hashtag borligini tekshirish
     """
     try:
-        data = request.get_json()
-        video_url = data.get('video_url')
-        required_hashtag = data.get('required_hashtag')
+        logger.info(f"Video tekshirish so'rovi: {request.video_url}")
         
-        if not video_url or not required_hashtag:
-            return jsonify({
-                'success': False,
-                'has_hashtag': False,
-                'error': 'video_url va required_hashtag maydonlari talab qilinadi'
-            }), 400
-        
-        logger.info(f"Hashtag tekshirish so'rovi: {video_url}")
+        # YANGI: Hashtag formatida kerakli matn
+        REQUIRED_HASHTAGS = [
+            "#Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring.",
+            "#Telegramdagi", 
+            "#RekchiAi_bot"
+        ]
         
         # Instagram video ma'lumotlarini olish
-        video_info = extract_instagram_video_info(video_url)
+        video_info = extract_instagram_video_info(request.video_url)
         
         if not video_info['success']:
-            return jsonify({
-                'success': False,
-                'has_hashtag': False,
-                'error': video_info.get('error', 'Video ma\'lumotlarini olishda xatolik')
-            }), 400
+            return VideoCheckResponse(
+                success=False,
+                has_text=False,
+                error=video_info.get('error', 'Video ma\'lumotlarini olishda xatolik')
+            )
         
         # Kontentni yig'amiz
         content = ""
@@ -151,23 +149,23 @@ def check_video_hashtag():
         if video_info.get('description'):
             content += video_info['description'] + " "
         
-        # Hashtag ni tekshiramiz
-        has_required_hashtag = check_text_in_content(content, required_hashtag)
+        # BARCHA hashtag larni tekshiramiz
+        all_hashtags_found = all(check_text_in_content(content, hashtag) for hashtag in REQUIRED_HASHTAGS)
         
-        return jsonify({
-            'success': True,
-            'has_hashtag': has_required_hashtag,
-            'error': None
-        })
+        return VideoCheckResponse(
+            success=True,
+            has_text=all_hashtags_found,
+            title=video_info.get('title', 'Instagram video'),
+            error=None
+        )
         
     except Exception as e:
-        logger.error(f"Hashtag check error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'has_hashtag': False,
-            'error': f"Server xatosi: {str(e)}"
-        }), 500
-
+        logger.error(f"Video check error: {str(e)}")
+        return VideoCheckResponse(
+            success=False,
+            has_text=False,
+            error=f"Server xatosi: {str(e)}"
+        )
 @app.route('/')
 def root():
     """Asosiy sahifa"""
