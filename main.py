@@ -11,9 +11,9 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# RapidAPI sozlamalari
+# RapidAPI sozlamalari - Instagram Downloader API uchun
 RAPIDAPI_KEY = "82d6cdc0f2mshd3d57d3979430d8p19ec3bjsnde8d982c9e90"
-RAPIDAPI_HOST = "instagram-scraper-api2.p.rapidapi.com"
+RAPIDAPI_HOST = "instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com"
 
 # TEST MODE - agar RapidAPI ishlamasa
 TEST_MODE = os.getenv('TEST_MODE', 'False').lower() == 'true'
@@ -42,7 +42,6 @@ def extract_instagram_code(video_url: str):
         r'instagram\.com/p/([^/?#&]+)',
         r'instagram\.com/reel/([^/?#&]+)',
         r'instagram\.com/tv/([^/?#&]+)',
-        # stories usually need different approach; kept for completeness but may not work
         r'instagram\.com/stories/[^/]+/([^/?#&]+)',
     ]
     
@@ -114,68 +113,20 @@ def check_required_hashtags(text: str):
     
     return all_found, found_details
 
-def get_test_instagram_data(video_url: str):
+def get_instagram_post_info(video_url: str):
     """
-    Test ma'lumotlari - RapidAPI ishlamaganda
-    """
-    # URL ga qarab turli test holatlari
-    if "test_accept" in (video_url or "") or "hashtag" in (video_url or ""):
-        return {
-            "message": "success",
-            "data": {
-                "caption": {
-                    "text": "Bu test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
-                },
-                "like_count": 150,
-                "comment_count": 25
-            }
-        }
-    elif "test_reject" in (video_url or "") or "nohashtag" in (video_url or ""):
-        return {
-            "message": "success", 
-            "data": {
-                "caption": {
-                    "text": "Bu oddiy video hech qanday hashtag yoq #boshqa #hashtag"
-                },
-                "like_count": 100,
-                "comment_count": 15
-            }
-        }
-    else:
-        # Default holat - qabul qilinadigan test
-        return {
-            "message": "success",
-            "data": {
-                "caption": {
-                    "text": "Standart test matni Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
-                },
-                "like_count": 200,
-                "comment_count": 30
-            }
-        }
-
-def extract_instagram_data(video_url: str):
-    """
-    RapidAPI orqali Instagram ma'lumotlarini olish
+    Instagram Downloader API orqali post ma'lumotlarini olish
     """
     try:
         if TEST_MODE:
             logger.info("TEST MODE: Haqiqiy ma'lumot o'rniga test ma'lumot qaytariladi")
             return get_test_instagram_data(video_url)
         
-        # Kodni olishdan oldin URL dan kod olinadimi tekshiramiz
-        code = extract_instagram_code(video_url)
-        if not code:
-            logger.error("Instagram post kodi topilmadi URL dan.")
-            return {
-                "message": "error",
-                "error": "Instagram post kodi URL dan olinmadi"
-            }
+        # Instagram Downloader API uchun URL
+        url = "https://instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com/"
         
-        # RapidAPI orqali Instagram post ma'lumotlarini olish
-        url = "https://instagram-scraper-api2.p.rapidapi.com/v1/post_info"
-        
-        querystring = {"code": code}
+        # URL parametr sifatida yuboriladi
+        querystring = {"url": video_url}
         
         headers = {
             "X-RapidAPI-Key": RAPIDAPI_KEY,
@@ -186,25 +137,65 @@ def extract_instagram_data(video_url: str):
         
         if response.status_code == 200:
             data = response.json()
-            logger.info(f"RapidAPI muvaffaqiyatli ishladi: {data.get('message', 'Ma\'lumot olindi')}")
-            return data
+            logger.info("Instagram Downloader API muvaffaqiyatli ishladi")
+            return {
+                "message": "success",
+                "data": data
+            }
         else:
-            logger.error(f"RapidAPI xatosi: {response.status_code} - {response.text}")
-            # Agar RapidAPI ishlamasa, test ma'lumot qaytaramiz
+            logger.error(f"Instagram Downloader API xatosi: {response.status_code} - {response.text}")
+            # Agar API ishlamasa, test ma'lumot qaytaramiz
             return get_test_instagram_data(video_url)
             
     except requests.exceptions.Timeout:
-        logger.error("RapidAPI so'rovi timeout")
+        logger.error("Instagram Downloader API so'rovi timeout")
         return get_test_instagram_data(video_url)
     except Exception as e:
         logger.error(f"Instagram ma'lumot olish xatosi: {str(e)}")
         return get_test_instagram_data(video_url)
 
+def get_test_instagram_data(video_url: str):
+    """
+    Test ma'lumotlari - RapidAPI ishlamaganda
+    """
+    # URL ga qarab turli test holatlari
+    if "test_accept" in (video_url or "") or "hashtag" in (video_url or ""):
+        return {
+            "message": "success",
+            "data": {
+                "caption": "Bu test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot",
+                "media": "video",
+                "likes": 150,
+                "comments": 25
+            }
+        }
+    elif "test_reject" in (video_url or "") or "nohashtag" in (video_url or ""):
+        return {
+            "message": "success", 
+            "data": {
+                "caption": "Bu oddiy video hech qanday hashtag yoq #boshqa #hashtag",
+                "media": "video",
+                "likes": 100,
+                "comments": 15
+            }
+        }
+    else:
+        # Default holat - qabul qilinadigan test
+        return {
+            "message": "success",
+            "data": {
+                "caption": "Standart test matni Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot",
+                "media": "video",
+                "likes": 200,
+                "comments": 30
+            }
+        }
+
 @app.route('/check', methods=['POST'])
 @rapidapi_required
 def check_video_text():
     """
-    RapidAPI orqali video tekshirish - asosiy endpoint
+    Instagram Downloader API orqali video tekshirish - asosiy endpoint
     """
     try:
         data = request.get_json()
@@ -232,11 +223,10 @@ def check_video_text():
         
         logger.info(f"Video tekshirish so'rovi: {video_url}")
         
-        # RapidAPI orqali ma'lumot olish
-        instagram_data = extract_instagram_data(video_url)
+        # Instagram Downloader API orqali ma'lumot olish
+        instagram_data = get_instagram_post_info(video_url)
         
         if instagram_data.get('message') != 'success':
-            # Agar extract_instagram_data xato haqida ma'lumot bergan bo'lsa, shu xabarni qaytaramiz
             error_msg = instagram_data.get('error') or 'Instagram ma\'lumotlarini olish mumkin emas'
             return jsonify({
                 'success': False,
@@ -247,22 +237,18 @@ def check_video_text():
                 'test_mode': TEST_MODE
             }), 400
         
-        # Caption (matn) ni olish - caption mavjudligini xavfsiz tarzda tekshiramiz
-        caption = instagram_data.get('data', {}).get('caption')
-        caption_text = ""
-        if caption and isinstance(caption, dict):
-            caption_text = caption.get('text') or ""
-        elif isinstance(caption, str):
-            caption_text = caption
-        else:
-            caption_text = ""
+        # API dan qaytgan ma'lumotlarni olish
+        api_data = instagram_data.get('data', {})
+        
+        # Caption (matn) ni olish - yangi API strukturasi
+        caption_text = api_data.get('caption', '')
+        
+        # Post statistiklarini olish
+        like_count = api_data.get('likes', 0)
+        comment_count = api_data.get('comments', 0)
         
         # Hashtag va frazalarni tekshirish
         has_required_hashtags, found_hashtags = check_required_hashtags(caption_text)
-        
-        # Post statistiklarini xavfsiz olish
-        like_count = instagram_data.get('data', {}).get('like_count', 0)
-        comment_count = instagram_data.get('data', {}).get('comment_count', 0)
         
         if has_required_hashtags:
             return jsonify({
@@ -277,6 +263,7 @@ def check_video_text():
                     'likes': like_count,
                     'comments': comment_count
                 },
+                'caption': caption_text,
                 'message': 'Video qabul qilindi - barcha shartlar bajarilgan'
             })
         else:
@@ -292,6 +279,7 @@ def check_video_text():
                     'likes': like_count,
                     'comments': comment_count
                 },
+                'caption': caption_text,
                 'message': 'Video rad etildi - barcha shartlar bajarilmagan'
             })
         
@@ -312,21 +300,25 @@ def rapidapi_status():
     RapidAPI holatini tekshirish
     """
     try:
-        # RapidAPI connection test
-        url = "https://instagram-scraper-api2.p.rapidapi.com/v1/post_info"
+        # Instagram Downloader API connection test
+        url = "https://instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com/"
+        
+        # Test URL bilan sinab ko'ramiz
+        querystring = {"url": "https://www.instagram.com/p/Cx6dUySILh6/"}
+        
         headers = {
             "X-RapidAPI-Key": RAPIDAPI_KEY,
             "X-RapidAPI-Host": RAPIDAPI_HOST
         }
         
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, params=querystring, timeout=10)
         
         return jsonify({
             'success': True,
             'rapidapi_status': 'active' if response.status_code == 200 else 'inactive',
             'status_code': response.status_code,
             'test_mode': TEST_MODE,
-            'message': 'RapidAPI faol' if response.status_code == 200 else 'RapidAPI nofaol'
+            'message': 'Instagram Downloader API faol' if response.status_code == 200 else 'Instagram Downloader API nofaol'
         })
         
     except Exception as e:
@@ -353,7 +345,12 @@ def test_accept():
             {'hashtag': '#RekchiAi_bot', 'found': True, 'required': True, 'type': 'hashtag'},
             {'hashtag': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': True, 'required': True, 'type': 'phrase'},
             {'hashtag': 'Telegramga RekchiAi_bot ga kiring.', 'found': True, 'required': True, 'type': 'phrase'}
-        ]
+        ],
+        'caption': 'Bu test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot',
+        'post_stats': {
+            'likes': 150,
+            'comments': 25
+        }
     })
 
 @app.route('/test/reject')
@@ -372,20 +369,26 @@ def test_reject():
             {'hashtag': '#RekchiAi_bot', 'found': False, 'required': True, 'type': 'hashtag'},
             {'hashtag': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': False, 'required': True, 'type': 'phrase'},
             {'hashtag': 'Telegramga RekchiAi_bot ga kiring.', 'found': False, 'required': True, 'type': 'phrase'}
-        ]
+        ],
+        'caption': 'Bu oddiy video hech qanday hashtag yoq #boshqa #hashtag',
+        'post_stats': {
+            'likes': 100,
+            'comments': 15
+        }
     })
 
 @app.route('/')
 def root():
     """Asosiy sahifa"""
     return jsonify({
-        "message": "Instagram Video Validation API with RapidAPI",
-        "version": "6.1.0 - FIXED HASHTAG CHECK",
+        "message": "Instagram Video Validation API with Instagram Downloader API",
+        "version": "7.0.0 - INSTAGRAM DOWNLOADER API",
         "test_mode": TEST_MODE,
         "rapidapi_key": "configured" if RAPIDAPI_KEY else "not configured",
-        "description": "RapidAPI orqali haqiqiy Instagram ma'lumotlarini oladi",
+        "api_provider": "Instagram Downloader API",
+        "description": "Instagram Downloader API orqali haqiqiy Instagram ma'lumotlarini oladi",
         "endpoints": {
-            "POST /check": "Asosiy tekshirish (RapidAPI)",
+            "POST /check": "Asosiy tekshirish (Instagram Downloader API)",
             "GET /rapidapi-status": "RapidAPI holati",
             "GET /test/accept": "Qabul qilinadigan test",
             "GET /test/reject": "Rad etiladigan test"
@@ -402,7 +405,7 @@ def root():
             "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?",
             "Telegramga RekchiAi_bot ga kiring."
         ],
-        "note": "Endi hashtag va frazalar alohida tekshiriladi. Faqat barcha shartlar bajarilganda video qabul qilinadi."
+        "note": "Instagram Downloader API yordamida post ma'lumotlari olinadi. Faqat barcha shartlar bajarilganda video qabul qilinadi."
     })
 
 if __name__ == "__main__":
