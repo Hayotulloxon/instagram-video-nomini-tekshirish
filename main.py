@@ -4,7 +4,6 @@ import re
 import requests
 from functools import wraps
 import os
-import json
 
 app = Flask(__name__)
 
@@ -15,77 +14,65 @@ logger = logging.getLogger(__name__)
 # RapidAPI sozlamalari
 RAPIDAPI_KEY = "82d6cdc0f2mshd3d57d3979430d8p19ec3bjsnde8d982c9e90"
 
-# Turli Instagram API larni sinab ko'ramiz
+# Eng yaxshi Instagram API lar
 API_CONFIGS = [
     {
-        "name": "Instagram Scraper",
-        "host": "instagram-scraper-api2.p.rapidapi.com", 
-        "url": "https://instagram-scraper-api2.p.rapidapi.com/v1/post_info",
-        "params_key": "code",
+        "name": "Instagram Scraper 2025",
+        "host": "instagram-scraper-2025.p.rapidapi.com",
+        "url": "https://instagram-scraper-2025.p.rapidapi.com/media",
+        "params_key": "url",
         "enabled": True
     },
     {
-        "name": "Instagram Downloader",
-        "host": "instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com",
-        "url": "https://instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com/",
+        "name": "Instagram Premium API 2023", 
+        "host": "instagram-premium-api-2023.p.rapidapi.com",
+        "url": "https://instagram-premium-api-2023.p.rapidapi.com/post",
+        "params_key": "url",
+        "enabled": True
+    },
+    {
+        "name": "Instagram API - Fast & Reliable",
+        "host": "instagram-api-fast-and-reliable.p.rapidapi.com",
+        "url": "https://instagram-api-fast-and-reliable.p.rapidapi.com/media",
+        "params_key": "url", 
+        "enabled": True
+    },
+    {
+        "name": "Instagram Scraper Stable API",
+        "host": "instagram-scraper-stable-api.p.rapidapi.com",
+        "url": "https://instagram-scraper-stable-api.p.rapidapi.com/post",
         "params_key": "url",
         "enabled": True
     }
 ]
 
-# Bepul API lar
-FREE_APIS = [
-    {
-        "name": "Instagram Private API",
-        "url": "https://www.instagram.com/p/{code}/?__a=1&__d=dis",
-        "method": "GET",
-        "headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
+# Bepul fallback API
+FREE_API = {
+    "name": "Instagram Private API",
+    "url": "https://www.instagram.com/p/{code}/?__a=1&__d=dis",
+    "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
     }
-]
+}
 
 # TEST MODE
 TEST_MODE = os.getenv('TEST_MODE', 'True').lower() == 'true'
 
-def rapidapi_required(f):
-    """RapidAPI tekshirish dekoratori"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not RAPIDAPI_KEY:
-            return jsonify({
-                'success': False,
-                'error': 'RapidAPI kaliti sozlanmagan'
-            }), 500
-        return f(*args, **kwargs)
-    return decorated_function
-
-def extract_instagram_code(video_url: str):
-    """
-    Instagram URL dan post kodini olish
-    """
-    if not video_url:
-        return None
-
-    patterns = [
-        r'instagram\.com/p/([^/?#&]+)',
-        r'instagram\.com/reel/([^/?#&]+)', 
-        r'instagram\.com/tv/([^/?#&]+)',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, video_url)
-        if match:
-            return match.group(1)
-    
-    return None
-
 def extract_shortcode_from_url(url: str):
     """Instagram URL dan shortcode olish"""
+    if not url:
+        return None
+        
     patterns = [
-        r'instagram\.com/p/([^/]+)',
-        r'instagram\.com/reel/([^/]+)',
-        r'instagram\.com/tv/([^/]+)',
+        r'instagram\.com/p/([^/?]+)',
+        r'instagram\.com/reel/([^/?]+)', 
+        r'instagram\.com/tv/([^/?]+)',
     ]
     
     for pattern in patterns:
@@ -150,79 +137,79 @@ def check_required_hashtags(text: str):
 
 def try_rapidapi_apis(video_url: str):
     """RapidAPI larni sinab ko'rish"""
-    code = extract_instagram_code(video_url)
-    
     for api_config in API_CONFIGS:
         if not api_config.get("enabled", True):
             continue
             
         try:
-            logger.info(f"RapidAPI sinab ko'ryapman: {api_config['name']}")
+            logger.info(f"Sinab ko'ryapman: {api_config['name']}")
             
             headers = {
                 "X-RapidAPI-Key": RAPIDAPI_KEY,
                 "X-RapidAPI-Host": api_config["host"]
             }
             
-            params = {}
-            if api_config["params_key"] == "url":
-                params = {"url": video_url}
-            elif api_config["params_key"] == "code" and code:
-                params = {"code": code}
-            else:
-                continue
+            params = {"url": video_url}
                 
             response = requests.get(
                 api_config["url"], 
                 headers=headers, 
                 params=params, 
-                timeout=15
+                timeout=20
             )
+            
+            logger.info(f"{api_config['name']} status: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
                 logger.info(f"{api_config['name']} muvaffaqiyatli ishladi")
                 return parse_api_response(data, api_config["name"])
+            elif response.status_code == 403:
+                logger.warning(f"{api_config['name']} - Obuna emas (403)")
+                continue
             else:
-                logger.warning(f"{api_config['name']} xatosi: {response.status_code} - {response.text}")
+                logger.warning(f"{api_config['name']} xatosi: {response.status_code}")
+                continue
                 
+        except requests.exceptions.Timeout:
+            logger.warning(f"{api_config['name']} - Timeout")
+            continue
         except Exception as e:
             logger.warning(f"{api_config['name']} istisnosi: {str(e)}")
             continue
     
     return None
 
-def try_free_apis(video_url: str):
-    """Bepul API larni sinab ko'rish"""
+def try_free_api(video_url: str):
+    """Bepul Instagram API ni sinab ko'rish"""
     shortcode = extract_shortcode_from_url(video_url)
     if not shortcode:
         return None
         
-    for api_config in FREE_APIS:
-        try:
-            logger.info(f"Bepul API sinab ko'ryapman: {api_config['name']}")
+    try:
+        logger.info("Bepul Instagram API sinab ko'ryapman")
+        
+        url = FREE_API["url"].format(code=shortcode)
+        
+        response = requests.get(
+            url, 
+            headers=FREE_API["headers"], 
+            timeout=15, 
+            allow_redirects=True
+        )
+        
+        logger.info(f"Bepul API status: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            return parse_instagram_private_api(data, FREE_API["name"])
+        else:
+            logger.warning(f"Bepul API xatosi: {response.status_code}")
+            return None
             
-            url = api_config["url"].format(code=shortcode)
-            headers = api_config.get("headers", {})
-            method = api_config.get("method", "GET")
-            
-            if method == "GET":
-                response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-            else:
-                continue
-                
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"{api_config['name']} muvaffaqiyatli ishladi")
-                return parse_instagram_private_api(data, api_config["name"])
-            else:
-                logger.warning(f"{api_config['name']} xatosi: {response.status_code}")
-                
-        except Exception as e:
-            logger.warning(f"{api_config['name']} istisnosi: {str(e)}")
-            continue
-    
-    return None
+    except Exception as e:
+        logger.warning(f"Bepul API istisnosi: {str(e)}")
+        return None
 
 def parse_api_response(data, api_name):
     """API responseni parse qilish"""
@@ -230,22 +217,52 @@ def parse_api_response(data, api_name):
         result = {
             "message": "success",
             "api_used": api_name,
-            "data": {}
+            "data": {
+                "caption": "",
+                "likes": 0,
+                "comments": 0
+            }
         }
         
-        if api_name == "Instagram Scraper":
-            # Instagram Scraper API strukturasi
-            if 'data' in data:
-                post_data = data['data']
-                result['data']['caption'] = post_data.get('caption', {}).get('text', '')
-                result['data']['likes'] = post_data.get('like_count', 0)
-                result['data']['comments'] = post_data.get('comment_count', 0)
-                
-        elif api_name == "Instagram Downloader":
-            # Instagram Downloader API strukturasi  
-            result['data']['caption'] = data.get('caption', '')
-            result['data']['likes'] = data.get('likes', 0)
-            result['data']['comments'] = data.get('comments', 0)
+        # Umumiy field lar
+        if isinstance(data, dict):
+            # Caption qidirish
+            caption = ""
+            if 'caption' in data:
+                caption = data.get('caption', '')
+            elif 'text' in data:
+                caption = data.get('text', '')
+            elif 'description' in data:
+                caption = data.get('description', '')
+            elif 'data' in data and isinstance(data['data'], dict):
+                if 'caption' in data['data']:
+                    caption_data = data['data']['caption']
+                    if isinstance(caption_data, dict):
+                        caption = caption_data.get('text', '')
+                    else:
+                        caption = str(caption_data)
+            
+            # Likes qidirish
+            likes = 0
+            if 'likes' in data:
+                likes = data.get('likes', 0)
+            elif 'like_count' in data:
+                likes = data.get('like_count', 0)
+            elif 'data' in data and isinstance(data['data'], dict):
+                likes = data['data'].get('like_count', 0) or data['data'].get('likes', 0)
+            
+            # Comments qidirish  
+            comments = 0
+            if 'comments' in data:
+                comments = data.get('comments', 0)
+            elif 'comment_count' in data:
+                comments = data.get('comment_count', 0)
+            elif 'data' in data and isinstance(data['data'], dict):
+                comments = data['data'].get('comment_count', 0) or data['data'].get('comments', 0)
+            
+            result['data']['caption'] = caption
+            result['data']['likes'] = likes
+            result['data']['comments'] = comments
             
         return result
         
@@ -259,7 +276,11 @@ def parse_instagram_private_api(data, api_name):
         result = {
             "message": "success", 
             "api_used": api_name,
-            "data": {}
+            "data": {
+                "caption": "",
+                "likes": 0,
+                "comments": 0
+            }
         }
         
         # Instagram private API strukturasi
@@ -273,9 +294,21 @@ def parse_instagram_private_api(data, api_name):
                 if edges and len(edges) > 0:
                     caption = edges[0]['node'].get('text', '')
             
+            # Likes olish
+            likes = 0
+            if 'edge_media_preview_like' in media:
+                likes = media['edge_media_preview_like'].get('count', 0)
+            elif 'edge_liked_by' in media:
+                likes = media['edge_liked_by'].get('count', 0)
+            
+            # Comments olish
+            comments = 0
+            if 'edge_media_to_comment' in media:
+                comments = media['edge_media_to_comment'].get('count', 0)
+            
             result['data']['caption'] = caption
-            result['data']['likes'] = media.get('edge_media_preview_like', {}).get('count', 0)
-            result['data']['comments'] = media.get('edge_media_to_comment', {}).get('count', 0)
+            result['data']['likes'] = likes
+            result['data']['comments'] = comments
             
         return result
         
@@ -285,7 +318,10 @@ def parse_instagram_private_api(data, api_name):
 
 def get_test_instagram_data(video_url: str):
     """Test ma'lumotlari"""
-    if "test_accept" in (video_url or "") or "hashtag" in (video_url or ""):
+    # URL dan holatni aniqlash
+    url_lower = (video_url or "").lower()
+    
+    if "test_accept" in url_lower or "hashtag" in url_lower or "accept" in url_lower:
         return {
             "message": "success",
             "data": {
@@ -295,7 +331,7 @@ def get_test_instagram_data(video_url: str):
             },
             "api_used": "TEST_MODE_ACCEPT"
         }
-    elif "test_reject" in (video_url or "") or "nohashtag" in (video_url or ""):
+    elif "test_reject" in url_lower or "nohashtag" in url_lower or "reject" in url_lower:
         return {
             "message": "success", 
             "data": {
@@ -306,28 +342,16 @@ def get_test_instagram_data(video_url: str):
             "api_used": "TEST_MODE_REJECT"
         }
     else:
-        # URL dan avtomatik aniqlash
-        url_lower = (video_url or "").lower()
-        if "accept" in url_lower or "hashtag" in url_lower:
-            return {
-                "message": "success",
-                "data": {
-                    "caption": "Bu test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot",
-                    "likes": 200,
-                    "comments": 30
-                },
-                "api_used": "TEST_MODE_AUTO_ACCEPT"
-            }
-        else:
-            return {
-                "message": "success",
-                "data": {
-                    "caption": "Bu oddiy video hech qanday hashtag yoq #boshqa #hashtag",
-                    "likes": 100,
-                    "comments": 15
-                },
-                "api_used": "TEST_MODE_AUTO_REJECT"
-            }
+        # Default - qabul qilinadigan
+        return {
+            "message": "success",
+            "data": {
+                "caption": "Standart test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot",
+                "likes": 200,
+                "comments": 30
+            },
+            "api_used": "TEST_MODE_DEFAULT"
+        }
 
 def get_instagram_post_info(video_url: str):
     """Instagram post ma'lumotlarini olish"""
@@ -337,13 +361,17 @@ def get_instagram_post_info(video_url: str):
             return get_test_instagram_data(video_url)
         
         # 1. RapidAPI larni sinab ko'rish
+        logger.info("RapidAPI larni sinab ko'ryapman...")
         result = try_rapidapi_apis(video_url)
         if result:
+            logger.info(f"RapidAPI muvaffaqiyatli: {result['api_used']}")
             return result
             
-        # 2. Bepul API larni sinab ko'rish  
-        result = try_free_apis(video_url)
+        # 2. Bepul API ni sinab ko'rish  
+        logger.info("Bepul API ni sinab ko'ryapman...")
+        result = try_free_api(video_url)
         if result:
+            logger.info(f"Bepul API muvaffaqiyatli: {result['api_used']}")
             return result
             
         # 3. Agar barchasi ishlamasa, test rejimi
@@ -442,24 +470,17 @@ def check_video_text():
 def rapidapi_status():
     """API holatini tekshirish"""
     try:
-        test_url = "https://www.instagram.com/p/Cx6dUySILh6/"
+        test_url = "https://www.instagram.com/p/C1LqX5JMv7G/"  # Haqiqiy Instagram post
         
-        for api_config in API_CONFIGS:
+        # RapidAPI larni tekshirish
+        for api_config in API_CONFIGS[:2]:  # Faqat birinchi 2 tasini tekshiramiz
             try:
                 headers = {
                     "X-RapidAPI-Key": RAPIDAPI_KEY,
                     "X-RapidAPI-Host": api_config["host"]
                 }
                 
-                params = {}
-                if api_config["params_key"] == "url":
-                    params = {"url": test_url}
-                else:
-                    code = extract_instagram_code(test_url)
-                    if code:
-                        params = {"code": code}
-                    else:
-                        continue
+                params = {"url": test_url}
                 
                 response = requests.get(
                     api_config["url"], 
@@ -469,19 +490,14 @@ def rapidapi_status():
                 )
                 
                 status_info = {
-                    'success': True,
+                    'success': response.status_code == 200,
                     'api_tested': api_config["name"],
                     'status_code': response.status_code,
                     'test_mode': TEST_MODE,
+                    'status': 'active' if response.status_code == 200 else 'inactive',
+                    'message': f"{api_config['name']} - {'Faol' if response.status_code == 200 else f'Nofaol ({response.status_code})'}"
                 }
                 
-                if response.status_code == 200:
-                    status_info['status'] = 'active'
-                    status_info['message'] = f"{api_config['name']} - Faol"
-                else:
-                    status_info['status'] = 'inactive' 
-                    status_info['message'] = f"{api_config['name']} - Nofaol ({response.status_code})"
-                    
                 return jsonify(status_info)
                 
             except Exception as e:
@@ -491,18 +507,18 @@ def rapidapi_status():
         try:
             shortcode = extract_shortcode_from_url(test_url)
             if shortcode:
-                free_api_url = FREE_APIS[0]["url"].format(code=shortcode)
-                response = requests.get(free_api_url, headers=FREE_APIS[0]["headers"], timeout=10)
+                free_api_url = FREE_API["url"].format(code=shortcode)
+                response = requests.get(free_api_url, headers=FREE_API["headers"], timeout=10)
                 
                 return jsonify({
-                    'success': True,
+                    'success': response.status_code == 200,
                     'api_tested': 'Instagram Private API',
                     'status': 'active' if response.status_code == 200 else 'inactive',
                     'status_code': response.status_code,
                     'test_mode': TEST_MODE,
                     'message': f"Instagram Private API - {'Faol' if response.status_code == 200 else 'Nofaol'}"
                 })
-        except:
+        except Exception as e:
             pass
             
         return jsonify({
@@ -569,17 +585,18 @@ def root():
     """Asosiy sahifa"""
     return jsonify({
         "message": "Instagram Video Validation API",
-        "version": "9.0.0 - MULTI-API WITH FREE APIS",
+        "version": "10.0.0 - OPTIMIZED MULTI-API",
         "test_mode": TEST_MODE,
-        "description": "RapidAPI va bepul API larni kombinatsiya qiladi",
-        "apis_configured": len(API_CONFIGS) + len(FREE_APIS),
+        "rapidapi_key": "configured",
+        "available_apis": len(API_CONFIGS) + 1,
+        "description": "Optimized Instagram API sistem - RapidAPI va bepul API lar",
         "endpoints": {
             "POST /check": "Asosiy tekshirish",
-            "GET /rapidapi-status": "API holati",
-            "GET /test/accept": "Qabul qilinadigan test", 
+            "GET /rapidapi-status": "API holati", 
+            "GET /test/accept": "Qabul qilinadigan test",
             "GET /test/reject": "Rad etiladigan test"
         },
-        "note": "Sistem avval RapidAPI larni, keyin bepul API larni sinab ko'radi. Test rejimi ham mavjud."
+        "note": "Sistem avval premium API larni, keyin bepul API ni sinab ko'radi. Test rejimi ham mavjud."
     })
 
 if __name__ == "__main__":
