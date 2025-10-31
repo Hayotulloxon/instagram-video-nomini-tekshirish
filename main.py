@@ -55,42 +55,41 @@ def extract_instagram_code(video_url: str):
 
 def extract_hashtags(text: str):
     """
-    Matndan barcha hashtaglarni topadi.
-    Hashtag = '#' bilan boshlangan va harf, raqam yoki '_' dan iborat so'z.
+    Matndan faqat hashtaglarni topadi.
+    Hashtag = '#' bilan boshlangan so'z
     """
     if not text:
         return []
-    # \w matches [A-Za-z0-9_], UNICODE flag keeps it robust for non-latin too in many environments
-    hashtags = re.findall(r'#\w[\w_]*', text, flags=re.UNICODE)
+    # Faqat '#' bilan boshlangan so'zlarni qidiramiz
+    hashtags = re.findall(r'#\w+', text)
     return hashtags
 
 def check_required_hashtags(text: str):
     """
-    Matndan kerakli hashtaglarni tekshirish — endi haqiqiy hashtaglarni ajratib tekshiradi.
-    REQUIRED_HASHTAGS ga faqat haqiqiy hashtaglarni qo'ying.
-    REQUIRED_PHRASES esa butun jumla / fragmentlar uchun.
+    Matndan kerakli hashtag va frazalarni tekshirish
     """
-    # Kerakli haqiqiy hashtaglar (faqat hashtag so'zlari bo'lishi kerak)
+    # Kerakli haqiqiy hashtaglar
     REQUIRED_HASHTAGS = [
         "#Telegramdagi",
         "#RekchiAi_bot",
     ]
     
-    # Agar siz butun jumla (hashtag bo'lmagan) fragmentlarni ham talab qilsangiz:
+    # Kerakli frazalar (hashtag emas)
     REQUIRED_PHRASES = [
         "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?",
         "Telegramga RekchiAi_bot ga kiring."
     ]
     
+    # Hashtaglarni tekshirish
     found_hashtags_list = extract_hashtags(text)
-    found_set = set([h.lower() for h in found_hashtags_list])
+    found_hashtags_set = set([h.lower() for h in found_hashtags_list])
     
     found_details = []
     all_found = True
     
-    # Tekshiramiz: haqiqiy hashtaglar
+    # 1. Haqiqiy hashtaglarni tekshirish
     for hashtag in REQUIRED_HASHTAGS:
-        found = hashtag.lower() in found_set
+        found = hashtag.lower() in found_hashtags_set
         found_details.append({
             'hashtag': hashtag,
             'found': found,
@@ -100,9 +99,10 @@ def check_required_hashtags(text: str):
         if not found:
             all_found = False
     
-    # Tekshiramiz: kerakli frazalar (agar siz ular ham shart bo'lsa)
+    # 2. Frazalarni tekshirish (hashtag emas, oddiy matn)
+    text_lower = (text or "").lower()
     for phrase in REQUIRED_PHRASES:
-        found_phrase = phrase.lower() in (text or "").lower()
+        found_phrase = phrase.lower() in text_lower
         found_details.append({
             'hashtag': phrase,
             'found': found_phrase,
@@ -124,7 +124,7 @@ def get_test_instagram_data(video_url: str):
             "message": "success",
             "data": {
                 "caption": {
-                    "text": "Bu test video #Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot #hashtag"
+                    "text": "Bu test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
                 },
                 "like_count": 150,
                 "comment_count": 25
@@ -142,12 +142,12 @@ def get_test_instagram_data(video_url: str):
             }
         }
     else:
-        # Default holat
+        # Default holat - qabul qilinadigan test
         return {
             "message": "success",
             "data": {
                 "caption": {
-                    "text": "Standart test matni #Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
+                    "text": "Standart test matni Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
                 },
                 "like_count": 200,
                 "comment_count": 30
@@ -257,7 +257,7 @@ def check_video_text():
         else:
             caption_text = ""
         
-        # Hashtaglarni tekshirish
+        # Hashtag va frazalarni tekshirish
         has_required_hashtags, found_hashtags = check_required_hashtags(caption_text)
         
         # Post statistiklarini xavfsiz olish
@@ -277,13 +277,13 @@ def check_video_text():
                     'likes': like_count,
                     'comments': comment_count
                 },
-                'message': 'Video qabul qilindi - barcha hashtag shartlari bajarilgan'
+                'message': 'Video qabul qilindi - barcha shartlar bajarilgan'
             })
         else:
             return jsonify({
                 'success': True,
                 'approved': False,
-                'error': 'Kerakli hashtaglar topilmadi',
+                'error': 'Kerakli hashtag yoki frazalar topilmadi',
                 'warning': 'Video rad etildi - jarima qo\'llaniladi',
                 'fine_amount': 10000,
                 'test_mode': TEST_MODE,
@@ -292,7 +292,7 @@ def check_video_text():
                     'likes': like_count,
                     'comments': comment_count
                 },
-                'message': 'Video rad etildi - hashtag shartlari bajarilmagan'
+                'message': 'Video rad etildi - barcha shartlar bajarilmagan'
             })
         
     except Exception as e:
@@ -347,11 +347,12 @@ def test_accept():
         'warning': None,
         'fine_amount': 0,
         'test_mode': True,
-        'message': 'Bu test video qabul qilinadi - barcha hashtaglar mavjud',
+        'message': 'Bu test video qabul qilinadi - barcha shartlar bajarilgan',
         'hashtags_check': [
-            {'hashtag': '#Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': True, 'required': True, 'type': 'phrase'},
             {'hashtag': '#Telegramdagi', 'found': True, 'required': True, 'type': 'hashtag'},
-            {'hashtag': '#RekchiAi_bot', 'found': True, 'required': True, 'type': 'hashtag'}
+            {'hashtag': '#RekchiAi_bot', 'found': True, 'required': True, 'type': 'hashtag'},
+            {'hashtag': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': True, 'required': True, 'type': 'phrase'},
+            {'hashtag': 'Telegramga RekchiAi_bot ga kiring.', 'found': True, 'required': True, 'type': 'phrase'}
         ]
     })
 
@@ -361,15 +362,16 @@ def test_reject():
     return jsonify({
         'success': True,
         'approved': False,
-        'error': 'Kerakli hashtaglar topilmadi',
+        'error': 'Kerakli hashtag yoki frazalar topilmadi',
         'warning': 'Video rad etildi - 10,000 jarima',
         'fine_amount': 10000,
         'test_mode': True,
-        'message': 'Bu test video rad etildi - hashtaglar yoq',
+        'message': 'Bu test video rad etildi - barcha shartlar bajarilmagan',
         'hashtags_check': [
-            {'hashtag': '#Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': False, 'required': True, 'type': 'phrase'},
             {'hashtag': '#Telegramdagi', 'found': False, 'required': True, 'type': 'hashtag'},
-            {'hashtag': '#RekchiAi_bot', 'found': False, 'required': True, 'type': 'hashtag'}
+            {'hashtag': '#RekchiAi_bot', 'found': False, 'required': True, 'type': 'hashtag'},
+            {'hashtag': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': False, 'required': True, 'type': 'phrase'},
+            {'hashtag': 'Telegramga RekchiAi_bot ga kiring.', 'found': False, 'required': True, 'type': 'phrase'}
         ]
     })
 
@@ -378,7 +380,7 @@ def root():
     """Asosiy sahifa"""
     return jsonify({
         "message": "Instagram Video Validation API with RapidAPI",
-        "version": "6.0.0 - RAPIDAPI INTEGRATION (updated hashtag checks)",
+        "version": "6.1.0 - FIXED HASHTAG CHECK",
         "test_mode": TEST_MODE,
         "rapidapi_key": "configured" if RAPIDAPI_KEY else "not configured",
         "description": "RapidAPI orqali haqiqiy Instagram ma'lumotlarini oladi",
@@ -390,7 +392,7 @@ def root():
         },
         "requirements": [
             "Instagram linki bo'lishi kerak",
-            "Quyidagi hashtaglar bo'lishi majburiy"
+            "Quyidagi shartlar bajarilishi majburiy:"
         ],
         "required_hashtags": [
             "#Telegramdagi", 
@@ -399,7 +401,8 @@ def root():
         "required_phrases": [
             "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?",
             "Telegramga RekchiAi_bot ga kiring."
-        ]
+        ],
+        "note": "Endi hashtag va frazalar alohida tekshiriladi. Faqat barcha shartlar bajarilganda video qabul qilinadi."
     })
 
 if __name__ == "__main__":
