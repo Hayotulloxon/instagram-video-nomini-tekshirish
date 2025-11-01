@@ -1,7 +1,18 @@
 from flask import Flask, request, jsonify
-import logging
-import re
 import requests
+from bs4 import BeautifulSoup
+import re
+import logging
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
+import json
+from datetime import datetime
 import os
 
 app = Flask(__name__)
@@ -10,534 +21,397 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Bepul API konfiguratsiyalari
-FREE_APIS = [
-    {
-        "name": "Instagram Private API",
-        "url": "https://www.instagram.com/p/{code}/?__a=1&__d=dis",
-        "method": "GET",
-        "headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br",
-            "DNT": "1",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1"
-        }
-    },
-    {
-        "name": "Instagram JSON API", 
-        "url": "https://www.instagram.com/p/{code}/?__a=1",
-        "method": "GET",
-        "headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-    },
-    {
-        "name": "Ddinstagram API",
-        "url": "https://ddinstagram.com/p/{code}",
-        "method": "GET", 
-        "headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-    }
-]
+# Global sozlamalar
+MAX_RETRIES = 3
+REQUEST_TIMEOUT = 15
 
-def extract_shortcode_from_url(url: str):
-    """Instagram URL dan shortcode olish"""
-    if not url:
+class InstagramChecker:
+    def __init__(self):
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+        ]
+    
+    def get_random_user_agent(self):
+        import random
+        return random.choice(self.user_agents)
+    
+    def extract_shortcode(self, url):
+        """Instagram URL dan shortcode olish"""
+        patterns = [
+            r'instagram\.com/p/([^/?]+)',
+            r'instagram\.com/reel/([^/?]+)',
+            r'instagram\.com/tv/([^/?]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
         return None
+    
+    def check_required_content(self, text):
+        """Matndan kerakli hashtag va frazalarni tekshirish"""
+        REQUIRED_HASHTAGS = [
+            "#Telegramdagi",
+            "#RekchiAi_bot",
+        ]
         
-    patterns = [
-        r'instagram\.com/p/([^/?]+)',
-        r'instagram\.com/reel/([^/?]+)', 
-        r'instagram\.com/tv/([^/?]+)',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    return None
-
-def extract_hashtags(text: str):
-    """Matndan hashtaglarni topish"""
-    if not text:
-        return []
-    
-    hashtags = re.findall(r'#\w+', text)
-    return hashtags
-
-def check_required_hashtags(text: str):
-    """
-    Matndan kerakli hashtag va frazalarni tekshirish
-    """
-    REQUIRED_HASHTAGS = [
-        "#Telegramdagi",
-        "#RekchiAi_bot",
-    ]
-    
-    REQUIRED_PHRASES = [
-        "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?",
-        "Telegramga RekchiAi_bot ga kiring."
-    ]
-    
-    # Hashtaglarni tekshirish
-    found_hashtags_list = extract_hashtags(text)
-    found_hashtags_set = set([h.lower() for h in found_hashtags_list])
-    
-    found_details = []
-    all_found = True
-    
-    # Hashtaglarni tekshirish
-    for hashtag in REQUIRED_HASHTAGS:
-        required_lower = hashtag.lower()
-        found = required_lower in found_hashtags_set
+        REQUIRED_PHRASES = [
+            "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?",
+            "Telegramga RekchiAi_bot ga kiring."
+        ]
         
-        found_details.append({
-            'hashtag': hashtag,
-            'found': found,
-            'required': True,
-            'type': 'hashtag'
-        })
-        if not found:
-            all_found = False
-    
-    # Frazalarni tekshirish
-    text_lower = (text or "").lower()
-    
-    for phrase in REQUIRED_PHRASES:
-        phrase_lower = phrase.lower()
-        found_phrase = phrase_lower in text_lower
+        if not text:
+            return False, []
         
-        found_details.append({
-            'hashtag': phrase,
-            'found': found_phrase,
-            'required': True,
-            'type': 'phrase'
-        })
-        if not found_phrase:
-            all_found = False
-    
-    return all_found, found_details
-
-def try_free_apis(video_url: str):
-    """Barcha bepul API larni sinab ko'rish"""
-    shortcode = extract_shortcode_from_url(video_url)
-    if not shortcode:
-        return None
+        # Hashtaglarni tekshirish
+        found_hashtags = re.findall(r'#\w+', text)
+        found_hashtags_set = set([h.lower() for h in found_hashtags])
         
-    for api_config in FREE_APIS:
+        found_details = []
+        all_found = True
+        
+        # Hashtaglarni tekshirish
+        for hashtag in REQUIRED_HASHTAGS:
+            required_lower = hashtag.lower()
+            found = required_lower in found_hashtags_set
+            
+            found_details.append({
+                'hashtag': hashtag,
+                'found': found,
+                'required': True,
+                'type': 'hashtag'
+            })
+            if not found:
+                all_found = False
+        
+        # Frazalarni tekshirish
+        text_lower = text.lower()
+        
+        for phrase in REQUIRED_PHRASES:
+            phrase_lower = phrase.lower()
+            found_phrase = phrase_lower in text_lower
+            
+            found_details.append({
+                'hashtag': phrase,
+                'found': found_phrase,
+                'required': True,
+                'type': 'phrase'
+            })
+            if not found_phrase:
+                all_found = False
+        
+        return all_found, found_details
+    
+    def check_with_requests(self, video_url):
+        """Requests va BeautifulSoup bilan tekshirish"""
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0',
+        }
+        
         try:
-            logger.info(f"Bepul API sinab ko'ryapman: {api_config['name']}")
+            response = requests.get(video_url, headers=headers, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
             
-            url = api_config["url"].format(code=shortcode)
-            headers = api_config.get("headers", {})
-            method = api_config.get("method", "GET")
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            if method == "GET":
-                response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-            else:
-                continue
-                
-            logger.info(f"{api_config['name']} status: {response.status_code}")
-            
-            if response.status_code == 200:
-                # Turli API larning response formatlarini handle qilish
-                data = None
-                
-                if api_config["name"] in ["Instagram Private API", "Instagram JSON API"]:
-                    try:
-                        data = response.json()
-                        result = parse_instagram_json_api(data, api_config["name"])
-                    except:
-                        # Agar JSON parse bo'lmasa, HTML dan ma'lumot extract qilish
-                        result = parse_instagram_html(response.text, api_config["name"])
-                else:
-                    # HTML response lar uchun
-                    result = parse_instagram_html(response.text, api_config["name"])
-                
-                if result and result.get('success'):
-                    logger.info(f"{api_config['name']} muvaffaqiyatli ishladi")
-                    return result
-                    
-        except Exception as e:
-            logger.warning(f"{api_config['name']} xatosi: {str(e)}")
-            continue
-    
-    return None
-
-def parse_instagram_json_api(data, api_name):
-    """Instagram JSON API responseni parse qilish"""
-    try:
-        result = {
-            "message": "success",
-            "api_used": api_name,
-            "data": {
-                "caption": "",
-                "likes": 0,
-                "comments": 0
-            }
-        }
-        
-        # Instagram Private API strukturasi
-        if 'graphql' in data and 'shortcode_media' in data['graphql']:
-            media = data['graphql']['shortcode_media']
-            
-            # Caption olish
+            # JSON ma'lumotlarini extract qilish
+            script_tags = soup.find_all('script', type='text/javascript')
             caption = ""
-            if 'edge_media_to_caption' in media:
-                edges = media['edge_media_to_caption']['edges']
-                if edges and len(edges) > 0:
-                    caption = edges[0]['node'].get('text', '')
             
-            # Likes olish
-            likes = media.get('edge_media_preview_like', {}).get('count', 0)
+            for script in script_tags:
+                if script.string:
+                    script_content = script.string
+                    # Turli JSON patternlarini sinab ko'rish
+                    patterns = [
+                        r'"caption":"([^"]*)"',
+                        r'"edge_media_to_caption":{"edges":\[\{"node":{"text":"([^"]*)"',
+                        r'"text":"([^"]*)"',
+                    ]
+                    
+                    for pattern in patterns:
+                        matches = re.findall(pattern, script_content)
+                        for match in matches:
+                            if match and len(match) > 10:  # Qisqa matnlarni filter qilish
+                                caption = match
+                                # Unicode escape sequence larni decode qilish
+                                try:
+                                    caption = caption.encode('latin-1').decode('unicode_escape')
+                                except:
+                                    pass
+                                break
+                    if caption:
+                        break
             
-            # Comments olish
-            comments = media.get('edge_media_to_comment', {}).get('count', 0)
+            # Agar JSON topilmasa, meta taglardan olish
+            if not caption:
+                meta_description = soup.find('meta', property='og:description')
+                if meta_description:
+                    caption = meta_description.get('content', '')
             
-            result['data']['caption'] = caption
-            result['data']['likes'] = likes
-            result['data']['comments'] = comments
+            # Agar hali ham caption topilmasa, title dan olish
+            if not caption:
+                title_tag = soup.find('title')
+                if title_tag:
+                    caption = title_tag.get_text()
             
-            return result
-        
-        # Boshqa JSON strukturalari
-        elif 'items' in data and len(data['items']) > 0:
-            item = data['items'][0]
-            caption = item.get('caption', {}).get('text', '')
-            likes = item.get('like_count', 0)
-            comments = item.get('comment_count', 0)
+            # Tekshirish
+            approved, found_details = self.check_required_content(caption)
             
-            result['data']['caption'] = caption
-            result['data']['likes'] = likes
-            result['data']['comments'] = comments
-            
-            return result
-            
-        return None
-        
-    except Exception as e:
-        logger.error(f"JSON API parse xatosi: {str(e)}")
-        return None
-
-def parse_instagram_html(html_content, api_name):
-    """Instagram HTML dan ma'lumot extract qilish"""
-    try:
-        result = {
-            "message": "success", 
-            "api_used": api_name,
-            "data": {
-                "caption": "",
-                "likes": 0,
-                "comments": 0
+            return {
+                'success': True,
+                'approved': approved,
+                'caption': caption,
+                'found_details': found_details,
+                'method': 'requests'
             }
-        }
-        
-        # HTML dan caption qidirish
-        caption_patterns = [
-            r'"caption":"([^"]*)"',
-            r'"edge_media_to_caption":{"edges":\[\{"node":{"text":"([^"]*)"',
-            r'<title>[^•]*•[^•]*•\s*([^<]*)</title>'
-        ]
-        
-        for pattern in caption_patterns:
-            match = re.search(pattern, html_content)
-            if match:
-                caption = match.group(1)
-                # Unicode escape sequence larni decode qilish
-                caption = caption.encode().decode('unicode_escape')
-                result['data']['caption'] = caption
-                break
-        
-        # Likes qidirish
-        likes_patterns = [
-            r'"edge_media_preview_like":{"count":(\d+)',
-            r'"like_count":(\d+)',
-            r'"likes":\s*(\d+)'
-        ]
-        
-        for pattern in likes_patterns:
-            match = re.search(pattern, html_content)
-            if match:
-                result['data']['likes'] = int(match.group(1))
-                break
-        
-        # Comments qidirish  
-        comments_patterns = [
-            r'"edge_media_to_comment":{"count":(\d+)',
-            r'"comment_count":(\d+)',
-            r'"comments":\s*(\d+)'
-        ]
-        
-        for pattern in comments_patterns:
-            match = re.search(pattern, html_content)
-            if match:
-                result['data']['comments'] = int(match.group(1))
-                break
-        
-        return result if result['data']['caption'] else None
-        
-    except Exception as e:
-        logger.error(f"HTML parse xatosi: {str(e)}")
-        return None
-
-def get_test_instagram_data(video_url: str):
-    """Test ma'lumotlari"""
-    url_lower = (video_url or "").lower()
-    
-    if "test_accept" in url_lower or "hashtag" in url_lower or "accept" in url_lower:
-        return {
-            "message": "success",
-            "data": {
-                "caption": "Bu test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot",
-                "likes": 150,
-                "comments": 25
-            },
-            "api_used": "TEST_MODE_ACCEPT"
-        }
-    elif "test_reject" in url_lower or "nohashtag" in url_lower or "reject" in url_lower:
-        return {
-            "message": "success", 
-            "data": {
-                "caption": "Bu oddiy video hech qanday hashtag yoq #boshqa #hashtag",
-                "likes": 100,
-                "comments": 15
-            },
-            "api_used": "TEST_MODE_REJECT"
-        }
-    else:
-        # Default - qabul qilinadigan
-        return {
-            "message": "success",
-            "data": {
-                "caption": "Standart test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot",
-                "likes": 200,
-                "comments": 30
-            },
-            "api_used": "TEST_MODE_DEFAULT"
-        }
-
-def get_instagram_post_info(video_url: str):
-    """Instagram post ma'lumotlarini olish - faqat bepul API lar"""
-    try:
-        # Bepul API larni sinab ko'rish
-        logger.info("Bepul API larni sinab ko'ryapman...")
-        result = try_free_apis(video_url)
-        if result:
-            logger.info(f"Bepul API muvaffaqiyatli: {result['api_used']}")
-            return result
             
-        # Agar bepul API lar ishlamasa, test rejimi
-        logger.warning("Barcha bepul API lar ishlamadi, test rejimiga o'tiladi")
-        return get_test_instagram_data(video_url)
-            
-    except Exception as e:
-        logger.error(f"Instagram ma'lumot olish xatosi: {str(e)}")
-        return get_test_instagram_data(video_url)
-
-@app.route('/check', methods=['POST'])
-def check_video_text():
-    """Instagram video tekshirish - asosiy endpoint"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({
+        except Exception as e:
+            logger.error(f"Requests method error: {str(e)}")
+            return {
                 'success': False,
-                'approved': False,
-                'error': 'JSON ma\'lumotlari talab qilinadi',
-                'warning': None,
-                'fine_amount': 0,
-                'test_mode': True
-            }), 400
+                'error': str(e),
+                'method': 'requests'
+            }
+    
+    def check_with_selenium(self, video_url):
+        """Selenium bilan tekshirish"""
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument(f"--user-agent={self.get_random_user_agent()}")
+        
+        driver = None
+        try:
+            # WebDriverManager bilan Chrome driver ni o'rnatish
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
             
-        video_url = data.get('video_url')
+            driver.get(video_url)
+            
+            # Kutish va dynamic content load bo'lishini kutish
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            
+            time.sleep(3)  # Additional wait for dynamic content
+            
+            # Caption ni topish uchun turli selectorlar
+            caption_selectors = [
+                "h1._aacl._aaco._aacu._aacx._aad7._aade",
+                "div._a9zs",
+                "span._aacl._aaco._aacu._aacx._aad7._aade",
+                "article ._a9zr",
+                "section ._a9zr",
+                "div._a9zr",
+                "[data-testid='post-comment-root']",
+            ]
+            
+            caption = ""
+            for selector in caption_selectors:
+                try:
+                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in elements:
+                        text = element.text.strip()
+                        if text and len(text) > 10:  # Faqat mazmunli matnlarni olish
+                            caption = text
+                            break
+                    if caption:
+                        break
+                except:
+                    continue
+            
+            # Agar hali caption topilmasa, butun page text ni olish
+            if not caption:
+                caption = driver.find_element(By.TAG_NAME, "body").text
+            
+            # Tekshirish
+            approved, found_details = self.check_required_content(caption)
+            
+            return {
+                'success': True,
+                'approved': approved,
+                'caption': caption,
+                'found_details': found_details,
+                'method': 'selenium'
+            }
+            
+        except Exception as e:
+            logger.error(f"Selenium method error: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'method': 'selenium'
+            }
+        finally:
+            if driver:
+                driver.quit()
+    
+    def check_instagram_post(self, video_url):
+        """Asosiy tekshirish funksiyasi - barcha usullarni sinab ko'radi"""
+        
+        # Avval requests method ni sinab ko'rish
+        result = self.check_with_requests(video_url)
+        if result['success']:
+            return result
+        
+        # Agar requests ishlamasa, selenium ni sinab ko'rish
+        logger.info("Requests method ishlamadi, Selenium ni sinab ko'ryapman...")
+        result = self.check_with_selenium(video_url)
+        if result['success']:
+            return result
+        
+        # Agar ikkala usul ham ishlamasa
+        return {
+            'success': False,
+            'approved': False,
+            'error': 'Barcha tekshirish usullari ishlamadi',
+            'method': 'all_failed'
+        }
+
+# Global InstagramChecker instance
+instagram_checker = InstagramChecker()
+
+@app.route('/check', methods=['POST', 'GET'])
+def check_video():
+    """Asosiy tekshirish endpoint - PHP bot bilan mos keladi"""
+    try:
+        # JSON data ni olish
+        if request.method == 'POST':
+            if request.is_json:
+                data = request.get_json()
+            else:
+                data = request.form.to_dict()
+        else:
+            data = request.args.to_dict()
+        
+        video_url = data.get('video_url') or data.get('url')
         
         if not video_url:
             return jsonify({
                 'success': False,
                 'approved': False,
                 'error': 'video_url maydoni talab qilinadi',
-                'warning': None,
-                'fine_amount': 0,
-                'test_mode': True
+                'has_text': False,
+                'title': None
             }), 400
         
         logger.info(f"Video tekshirish so'rovi: {video_url}")
         
-        # Instagram ma'lumotlarini olish
-        instagram_data = get_instagram_post_info(video_url)
+        # Instagram post ni tekshirish
+        result = instagram_checker.check_instagram_post(video_url)
         
-        if instagram_data.get('message') != 'success':
-            error_msg = instagram_data.get('error') or 'Instagram ma\'lumotlarini olish mumkin emas'
+        if not result['success']:
             return jsonify({
                 'success': False,
                 'approved': False,
-                'error': error_msg,
-                'warning': 'API xatosi',
-                'fine_amount': 0,
-                'test_mode': True
+                'error': result.get('error', 'Tekshirish amalga oshirilmadi'),
+                'has_text': False,
+                'title': None
             }), 400
         
-        # API dan qaytgan ma'lumotlarni olish
-        api_data = instagram_data.get('data', {})
-        api_used = instagram_data.get('api_used', 'UNKNOWN')
-        
-        caption_text = api_data.get('caption', '')
-        like_count = api_data.get('likes', 0)
-        comment_count = api_data.get('comments', 0)
-        
-        logger.info(f"Caption text olingan: '{caption_text}'")
-        
-        # Hashtag va frazalarni tekshirish
-        has_required_hashtags, found_hashtags = check_required_hashtags(caption_text)
-        
+        # PHP bot uchun mos response
         response_data = {
             'success': True,
-            'approved': has_required_hashtags,
-            'error': None if has_required_hashtags else 'Kerakli hashtag yoki frazalar topilmadi',
-            'warning': None if has_required_hashtags else 'Video rad etildi - jarima qo\'llaniladi',
-            'fine_amount': 0 if has_required_hashtags else 10000,
-            'test_mode': True,
-            'api_used': api_used,
-            'hashtags_check': found_hashtags,
-            'post_stats': {
-                'likes': like_count,
-                'comments': comment_count
-            },
-            'caption': caption_text,
-            'message': 'Video qabul qilindi - barcha shartlar bajarilgan' if has_required_hashtags else 'Video rad etildi - barcha shartlar bajarilmagan'
+            'approved': result['approved'],
+            'has_text': result['approved'],  # PHP bot uchun
+            'error': None,
+            'title': result.get('caption', '')[:100] + '...' if result.get('caption') else 'Instagram video',
+            'method_used': result.get('method', 'unknown'),
+            'caption_preview': result.get('caption', '')[:200] if result.get('caption') else '',
+            'found_details': result.get('found_details', []),
+            'message': 'Video qabul qilindi' if result['approved'] else 'Video rad etildi - kerakli matnlar topilmadi'
         }
+        
+        logger.info(f"Tekshirish natijasi: {'Qabul qilindi' if result['approved'] else 'Rad etildi'} - Method: {result.get('method')}")
         
         return jsonify(response_data)
         
     except Exception as e:
-        logger.error(f"Video check error: {str(e)}")
+        logger.error(f"Umumiy xato: {str(e)}")
         return jsonify({
             'success': False,
             'approved': False,
             'error': f"Server xatosi: {str(e)}",
-            'warning': None,
-            'fine_amount': 0,
-            'test_mode': True
+            'has_text': False,
+            'title': None
         }), 500
 
-@app.route('/api-status', methods=['GET'])
-def api_status():
-    """Bepul API lar holatini tekshirish"""
-    try:
-        test_shortcode = "C1LqX5JMv7G"  # Test uchun Instagram post
-        
-        results = []
-        
-        for api_config in FREE_APIS:
-            try:
-                url = api_config["url"].format(code=test_shortcode)
-                headers = api_config.get("headers", {})
-                
-                response = requests.get(url, headers=headers, timeout=10)
-                
-                result = {
-                    'api_name': api_config['name'],
-                    'status_code': response.status_code,
-                    'active': response.status_code == 200,
-                    'url': url
-                }
-                
-                if response.status_code == 200:
-                    result['message'] = 'Faol'
-                else:
-                    result['message'] = f'Nofaol ({response.status_code})'
-                
-                results.append(result)
-                
-            except Exception as e:
-                results.append({
-                    'api_name': api_config['name'],
-                    'status_code': 'error',
-                    'active': False,
-                    'message': str(e),
-                    'url': api_config["url"].format(code=test_shortcode)
-                })
-        
+@app.route('/status', methods=['GET'])
+def status():
+    """Server holatini tekshirish"""
+    return jsonify({
+        'status': 'online',
+        'service': 'Instagram Video Checker',
+        'timestamp': datetime.now().isoformat(),
+        'version': '1.0'
+    })
+
+@app.route('/test', methods=['GET'])
+def test_endpoint():
+    """Test endpoint - PHP bot sinash uchun"""
+    test_url = request.args.get('url', '')
+    
+    if 'test_accept' in test_url:
         return jsonify({
-            'success': any(result['active'] for result in results),
-            'free_apis_tested': results,
-            'note': 'Bepul API lar ba\'zan ishlamasligi mumkin. Test rejimi har doim ishlaydi.'
+            'success': True,
+            'approved': True,
+            'has_text': True,
+            'title': 'Test video - Qabul qilindi',
+            'method_used': 'test',
+            'message': 'TEST: Video qabul qilindi'
         })
-        
-    except Exception as e:
+    elif 'test_reject' in test_url:
         return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/test/accept')
-def test_accept():
-    """Qabul qilinadigan test"""
-    return jsonify({
-        'success': True,
-        'approved': True,
-        'error': None,
-        'warning': None,
-        'fine_amount': 0,
-        'test_mode': True,
-        'api_used': 'TEST_ENDPOINT',
-        'message': 'Bu test video qabul qilinadi - barcha shartlar bajarilgan',
-        'hashtags_check': [
-            {'hashtag': '#Telegramdagi', 'found': True, 'required': True, 'type': 'hashtag'},
-            {'hashtag': '#RekchiAi_bot', 'found': True, 'required': True, 'type': 'hashtag'},
-            {'hashtag': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': True, 'required': True, 'type': 'phrase'},
-            {'hashtag': 'Telegramga RekchiAi_bot ga kiring.', 'found': True, 'required': True, 'type': 'phrase'}
-        ],
-        'caption': 'Bu test video Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot',
-        'post_stats': {'likes': 150, 'comments': 25}
-    })
-
-@app.route('/test/reject')
-def test_reject():
-    """Rad etiladigan test"""
-    return jsonify({
-        'success': True,
-        'approved': False,
-        'error': 'Kerakli hashtag yoki frazalar topilmadi',
-        'warning': 'Video rad etildi - 10,000 jarima',
-        'fine_amount': 10000,
-        'test_mode': True,
-        'api_used': 'TEST_ENDPOINT',
-        'message': 'Bu test video rad etildi - barcha shartlar bajarilmagan',
-        'hashtags_check': [
-            {'hashtag': '#Telegramdagi', 'found': False, 'required': True, 'type': 'hashtag'},
-            {'hashtag': '#RekchiAi_bot', 'found': False, 'required': True, 'type': 'hashtag'},
-            {'hashtag': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?', 'found': False, 'required': True, 'type': 'phrase'},
-            {'hashtag': 'Telegramga RekchiAi_bot ga kiring.', 'found': False, 'required': True, 'type': 'phrase'}
-        ],
-        'caption': 'Bu oddiy video hech qanday hashtag yoq #boshqa #hashtag',
-        'post_stats': {'likes': 100, 'comments': 15}
-    })
+            'success': True,
+            'approved': False,
+            'has_text': False,
+            'title': 'Test video - Rad etildi',
+            'method_used': 'test',
+            'message': 'TEST: Video rad etildi'
+        })
+    else:
+        return jsonify({
+            'success': True,
+            'approved': True,
+            'has_text': True,
+            'title': 'Standart test video',
+            'method_used': 'test',
+            'message': 'TEST: Standart video qabul qilindi'
+        })
 
 @app.route('/')
-def root():
-    """Asosiy sahifa"""
+def home():
+    """Bosh sahifa"""
     return jsonify({
-        "message": "Instagram Video Validation API - 100% FREE",
-        "version": "FREE-1.0",
-        "cost": "0$ - Butunlay bepul",
-        "description": "Faqat bepul API lar va test rejimidan foydalanadi",
-        "free_apis_used": [api["name"] for api in FREE_APIS],
-        "endpoints": {
-            "POST /check": "Asosiy tekshirish",
-            "GET /api-status": "Bepul API lar holati", 
-            "GET /test/accept": "Qabul qilinadigan test",
-            "GET /test/reject": "Rad etiladigan test"
+        'service': 'Instagram Video Validation API',
+        'version': '1.0',
+        'endpoints': {
+            'POST /check': 'Video tekshirish',
+            'GET /status': 'Server holati',
+            'GET /test': 'Test endpoint'
         },
-        "note": "Bepul API lar ba'zan ishlamasligi mumkin. Bunday holatda test rejimi avtomatik faollashadi."
+        'usage': 'POST /check with {"video_url": "instagram_url"}'
     })
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
-    debug_mode = os.environ.get('DEBUG', 'True').lower() == 'true'
+    debug = os.environ.get('DEBUG', 'False').lower() == 'true'
     
-    app.run(host="0.0.0.0", port=port, debug=debug_mode)
+    app.run(host='0.0.0.0', port=port, debug=debug)
