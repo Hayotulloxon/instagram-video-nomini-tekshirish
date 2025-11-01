@@ -1,108 +1,105 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
-from bs4 import BeautifulSoup
-import re
 import json
-import html
 import logging
 import os
 
 app = Flask(__name__)
 CORS(app)
 
+# Logging sozlamalari
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_caption_from_instagram(url):
-    """Instagram postdan caption ni olish"""
+# Instagram API token
+INSTAGRAM_API_URL = "https://insta.savetube.me/downloadPostPic"
+API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwYXlsb2FkIjoiVXNlciIsImlhdCI6MTcxMzQ1NTI4MSwiZXhwIjoxNzEzNDU1MzExfQ.quApDi178e9PEGtf6qY_QI2sgnKxVrl1ErcLO4oS8fw"
+
+def get_instagram_post_data(instagram_url):
+    """Instagram post ma'lumotlarini olish"""
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'Accept': '*/*',
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        logger.info(f"📡 Instagram post so'rovi: {url}")
-        r = requests.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
+        data = {
+            'url': instagram_url
+        }
         
-        s = BeautifulSoup(r.text, 'html.parser')
+        logger.info(f"📡 Instagram API so'rovi: {instagram_url}")
         
-        # 1. Meta description orqali
-        m = s.find('meta', {'property': 'og:description'})
-        if m and m.get('content'):
-            caption = html.unescape(m['content'])
-            logger.info("✅ Meta description orqali caption topildi")
-            return caption
+        response = requests.post(
+            INSTAGRAM_API_URL,
+            json=data,
+            headers=headers,
+            timeout=30
+        )
         
-        # 2. JSON-LD orqali
-        scripts = s.find_all('script', type='application/ld+json')
-        for sc in scripts:
-            try:
-                j = json.loads(sc.string)
-                if isinstance(j, dict) and 'caption' in j:
-                    caption = j['caption']
-                    logger.info("✅ JSON-LD orqali caption topildi")
-                    return caption
-            except:
-                continue
+        logger.info(f"📊 API Status: {response.status_code}")
         
-        # 3. Window sharedData orqali
-        js = s.find('script', string=re.compile('window\\._sharedData'))
-        if js:
-            txt = js.string
-            jtxt = re.search(r'window\._sharedData\s*=\s*(\{.*\});', txt)
-            if jtxt:
-                try:
-                    jd = json.loads(jtxt.group(1))
-                    ed = jd.get('entry_data', {})
-                    postpage = ed.get('PostPage', [])
-                    if postpage:
-                        media = postpage[0].get('graphql', {}).get('shortcode_media', {})
-                        edges = media.get('edge_media_to_caption', {}).get('edges', [])
-                        if edges:
-                            caption = edges[0]['node']['text']
-                            logger.info("✅ SharedData orqali caption topildi")
-                            return caption
-                except Exception as e:
-                    logger.warning(f"SharedData parse xatosi: {e}")
+        if response.status_code == 200:
+            data = response.json()
+            logger.info("✅ Instagram API muvaffaqiyatli ishladi")
+            return data
+        else:
+            logger.error(f"❌ API xatosi: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ API so'rovi xatosi: {e}")
+        return None
+
+def check_required_text(post_data, target_text):
+    """Post ma'lumotlarida kerakli matn borligini tekshirish"""
+    try:
+        # Turli maydonlarda matn qidirish
+        caption = post_data.get('caption', '')
+        description = post_data.get('description', '')
+        text = post_data.get('text', '')
         
-        # 4. Regex orqali
-        t = re.search(r'\"caption\":\"(.*?)\"', r.text)
-        if t:
-            caption = html.unescape(t.group(1))
-            logger.info("✅ Regex orqali caption topildi")
-            return caption
+        # Barcha matnlarni birlashtirish
+        all_text = f"{caption} {description} {text}".lower()
+        target_lower = target_text.lower()
         
-        logger.warning("❌ Hech qanday usul bilan caption topilmadi")
-        return ''
+        found = target_lower in all_text
+        
+        logger.info(f"🔍 Tekshirish: '{target_text}' -> {found}")
+        
+        return found
         
     except Exception as e:
-        logger.error(f"❌ Xato: {e}")
-        return ''
+        logger.error(f"❌ Matn tekshirish xatosi: {e}")
+        return False
 
 @app.route('/', methods=['GET'])
 def home():
     """API haqida ma'lumot"""
     return jsonify({
-        'service': 'Instagram Caption Checker API',
-        'version': '2.0',
-        'description': 'Instagram post caption ichidagi matnni tekshiradi',
+        'service': 'Instagram Video Checker API',
+        'version': '3.0',
+        'description': 'Instagram post ma\'lumotlarini tekshiradi (PHP bot asosida)',
         'endpoints': {
             'POST /check': {
-                'description': 'Caption tekshirish',
+                'description': 'Video tekshirish',
                 'parameters': {
                     'url': 'Instagram post URL',
-                    'video_url': 'Instagram video URL (alternativ)',
-                    'target_text': 'Qidirilayotgan matn'
+                    'video_url': 'Instagram video URL', 
+                    'target_text': 'Qidirilayotgan matn (ixtiyoriy)'
                 }
+            },
+            'GET /post-info': {
+                'description': 'Post ma\'lumotlarini olish'
             }
         },
         'default_target_text': 'RekchiAi_bot'
     })
 
 @app.route('/check', methods=['POST'])
-def check_caption():
-    """Caption ni tekshirish"""
+def check_video():
+    """Instagram video tekshirish"""
     try:
         data = request.get_json()
         if not data:
@@ -112,40 +109,43 @@ def check_caption():
                 'error': 'JSON ma\'lumotlari talab qilinadi'
             }), 400
         
-        # Ikkala parametrni qo'llab-quvvatlash
-        url = data.get('url') or data.get('video_url')
+        # URL ni olish
+        url = data.get('url') or data.get('video_url') or data.get('instagram_url')
         target_text = data.get('target_text', 'RekchiAi_bot')
         
         if not url:
             return jsonify({
                 'success': False,
                 'approved': False,
-                'error': 'URL maydoni talab qilinadi (url yoki video_url)'
+                'error': 'URL maydoni talab qilinadi'
             }), 400
         
         logger.info(f"🎬 Tekshirish so'rovi: {url}")
         logger.info(f"🎯 Qidirilayotgan matn: {target_text}")
         
-        # Caption ni olish
-        caption = get_caption_from_instagram(url)
+        # Instagram post ma'lumotlarini olish
+        post_data = get_instagram_post_data(url)
         
-        if not caption:
+        if not post_data:
             return jsonify({
                 'success': False,
                 'approved': False,
-                'error': 'Caption topilmadi yoki post mavjud emas'
+                'error': 'Instagram post ma\'lumotlari olinmadi'
             }), 404
         
         # Matnni tekshirish
-        has_target_text = target_text.lower() in caption.lower()
+        has_target_text = check_required_text(post_data, target_text)
         
         response_data = {
             'success': True,
             'approved': has_target_text,
             'found': has_target_text,
             'target_text': target_text,
-            'caption_preview': caption[:200] + '...' if len(caption) > 200 else caption,
-            'caption_length': len(caption),
+            'post_data': {
+                'has_caption': bool(post_data.get('caption')),
+                'has_media': bool(post_data.get('media')),
+                'data_keys': list(post_data.keys())
+            },
             'message': 'Matn topildi - video qabul qilindi' if has_target_text else 'Matn topilmadi - video rad etildi'
         }
         
@@ -161,15 +161,67 @@ def check_caption():
             'error': f'Server xatosi: {str(e)}'
         }), 500
 
+@app.route('/post-info', methods=['POST'])
+def get_post_info():
+    """Instagram post to'liq ma'lumotlarini olish"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'JSON ma\'lumotlari talab qilinadi'
+            }), 400
+        
+        url = data.get('url') or data.get('video_url')
+        
+        if not url:
+            return jsonify({
+                'success': False,
+                'error': 'URL maydoni talab qilinadi'
+            }), 400
+        
+        # Instagram post ma'lumotlarini olish
+        post_data = get_instagram_post_data(url)
+        
+        if not post_data:
+            return jsonify({
+                'success': False,
+                'error': 'Post ma\'lumotlari olinmadi'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'post_data': post_data
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Server xatosi: {str(e)}'
+        }), 500
+
 @app.route('/health', methods=['GET'])
 def health():
     """Server holati"""
     return jsonify({
         'status': 'ok',
-        'service': 'Instagram Caption Checker',
-        'version': '2.0'
+        'service': 'Instagram Video Checker',
+        'version': '3.0',
+        'api_provider': 'insta.savetube.me'
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
+    
+    print("=" * 60)
+    print("Instagram Video Checker API - PHP BOT VERSION")
+    print("=" * 60)
+    print(f"🚀 Server http://localhost:{port} da ishga tushmoqda...")
+    print("\n📋 Endpoint'lar:")
+    print("  POST /check      - Video tekshirish")
+    print("  POST /post-info  - Post ma'lumotlarini olish")
+    print("  GET  /health     - Server holati")
+    print("\n🔧 API Provider: insta.savetube.me")
+    print("=" * 60)
+    
     app.run(host='0.0.0.0', port=port, debug=False)
