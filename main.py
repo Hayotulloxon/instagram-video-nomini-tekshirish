@@ -1,92 +1,79 @@
 from flask import Flask, request, jsonify
 import logging
 import re
-import requests
 import os
 
 app = Flask(__name__)
 
 # Logging sozlamalari
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-def extract_shortcode_from_url(url: str):
-    """Instagram URL dan shortcode olish"""
-    if not url:
-        return None
-        
-    patterns = [
-        r'instagram\.com/p/([^/?]+)',
-        r'instagram\.com/reel/([^/?]+)', 
-        r'instagram\.com/tv/([^/?]+)',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    return None
-
 def normalize_text(text: str) -> str:
-    """Matnni normalizatsiya qilish - bo'sh joylar, kichik harflar"""
+    """Matnni normalizatsiya qilish - ortiqcha bo'sh joylarni olib tashlash"""
     if not text:
         return ""
-    # Ortiqcha bo'sh joylarni olib tashlash
+    # Ortiqcha bo'sh joylarni bitta bo'sh joy bilan almashtirish
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 def extract_hashtags(text: str):
-    """Matndan hashtaglarni topish"""
+    """Matndan hashtaglarni topish (Unicode qo'llab-quvvatlash bilan)"""
     if not text:
         return []
     
-    # # bilan boshlanadigan so'zlarni topish (Unicode qo'llab-quvvatlash bilan)
+    # # bilan boshlanadigan so'zlarni topish (kirill va lotin harflar)
     hashtags = re.findall(r'#[\w\u0400-\u04FF]+', text, re.UNICODE)
+    # Kichik harflarga o'tkazish
     return [h.lower() for h in hashtags]
 
 def check_required_content(text: str):
     """
     Matndan kerakli hashtag va frazalarni tekshirish
-    MUKAMMAL VERSIYA - har bir element alohida tekshiriladi
+    MUKAMMAL ALGORITM - har bir element aniq tekshiriladi
     """
     if not text:
-        logger.warning("Bo'sh matn yuborilgan!")
+        logger.warning("⚠️ Bo'sh matn yuborilgan!")
         return False, []
     
     # Matnni normalizatsiya qilish
     text_normalized = normalize_text(text)
     text_lower = text_normalized.lower()
     
-    logger.info(f"="*60)
-    logger.info(f"TEKSHIRILAYOTGAN MATN:")
-    logger.info(f"{text_normalized}")
-    logger.info(f"="*60)
+    logger.info("=" * 70)
+    logger.info("🔍 TEKSHIRISH BOSHLANDI")
+    logger.info("=" * 70)
+    logger.info(f"📝 Matn: {text_normalized[:200]}...")
+    logger.info("-" * 70)
     
-    # Kerakli elementlar
+    # Kerakli elementlar ro'yxati
     REQUIRED_ITEMS = [
         {
             'type': 'hashtag',
             'value': '#telegramdagi',
             'display': '#Telegramdagi',
-            'description': 'Hashtag: #Telegramdagi'
+            'description': 'Hashtag #Telegramdagi'
         },
         {
             'type': 'hashtag',
             'value': '#rekchiai_bot',
             'display': '#RekchiAi_bot',
-            'description': 'Hashtag: #RekchiAi_bot'
+            'description': 'Hashtag #RekchiAi_bot'
         },
         {
             'type': 'phrase',
             'value': 'videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?',
             'display': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?',
-            'description': 'Fraza: "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?"'
+            'description': 'Fraza "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?"'
         },
         {
             'type': 'phrase',
             'value': 'telegramga rekchiai_bot ga kiring',
             'display': 'Telegramga RekchiAi_bot ga kiring',
-            'description': 'Fraza: "Telegramga RekchiAi_bot ga kiring"'
+            'description': 'Fraza "Telegramga RekchiAi_bot ga kiring"'
         }
     ]
     
@@ -95,26 +82,31 @@ def check_required_content(text: str):
     
     # Hashtaglarni topish
     found_hashtags = extract_hashtags(text)
-    logger.info(f"Topilgan barcha hashtaglar: {found_hashtags}")
+    logger.info(f"📌 Topilgan hashtaglar: {found_hashtags}")
+    logger.info("-" * 70)
     
     # Har bir kerakli elementni tekshirish
-    for item in REQUIRED_ITEMS:
+    for index, item in enumerate(REQUIRED_ITEMS, 1):
         if item['type'] == 'hashtag':
             # Hashtag tekshirish
             found = item['value'] in found_hashtags
+            icon = "✅" if found else "❌"
             
-            logger.info(f"✓ Tekshirish: {item['description']}")
-            logger.info(f"  Qidirilayotgan: '{item['value']}'")
-            logger.info(f"  Natija: {'✅ TOPILDI' if found else '❌ TOPILMADI'}")
+            logger.info(f"{icon} [{index}/4] {item['description']}")
+            logger.info(f"     Qidirilgan: '{item['value']}'")
+            logger.info(f"     Natija: {'TOPILDI ✓' if found else 'TOPILMADI ✗'}")
             
         else:  # phrase
             # Frazani tekshirish - kichik harflarda
             phrase_lower = item['value'].lower()
             found = phrase_lower in text_lower
+            icon = "✅" if found else "❌"
             
-            logger.info(f"✓ Tekshirish: {item['description']}")
-            logger.info(f"  Qidirilayotgan: '{phrase_lower}'")
-            logger.info(f"  Natija: {'✅ TOPILDI' if found else '❌ TOPILMADI'}")
+            logger.info(f"{icon} [{index}/4] {item['description']}")
+            logger.info(f"     Qidirilgan: '{phrase_lower}'")
+            logger.info(f"     Natija: {'TOPILDI ✓' if found else 'TOPILMADI ✗'}")
+        
+        logger.info("-" * 70)
         
         found_details.append({
             'item': item['display'],
@@ -127,115 +119,22 @@ def check_required_content(text: str):
         if not found:
             all_found = False
     
-    logger.info(f"="*60)
-    logger.info(f"YAKUNIY NATIJA: {'✅ BARCHA SHARTLAR BAJARILGAN' if all_found else '❌ BA\'ZI SHARTLAR BAJARILMAGAN'}")
-    logger.info(f"="*60)
+    # Yakuniy natija
+    if all_found:
+        logger.info("🎉 YAKUNIY NATIJA: ✅ BARCHA SHARTLAR BAJARILGAN!")
+    else:
+        logger.info("⛔ YAKUNIY NATIJA: ❌ BA'ZI SHARTLAR BAJARILMAGAN")
+    
+    logger.info("=" * 70)
     
     return all_found, found_details
 
-def get_instagram_post_info(video_url: str):
-    """
-    Instagram post ma'lumotlarini olish
-    REAL API Integration + Test Mode
-    """
-    try:
-        # URL dan holatni aniqlash (test rejimi)
-        url_lower = (video_url or "").lower()
-        
-        # Test rejimi - URL ichida maxsus kalit so'zlar bor bo'lsa
-        if "test" in url_lower or "example.com" in url_lower:
-            logger.info("TEST REJIMI faollashtirildi")
-            
-            if "reject" in url_lower or "nohashtag" in url_lower:
-                return {
-                    "message": "success",
-                    "data": {
-                        "caption": "Bu oddiy video hech qanday kerakli hashtag yoq #boshqa #hashtag",
-                        "likes": 100,
-                        "comments": 15
-                    },
-                    "api_used": "TEST_MODE_REJECT"
-                }
-            else:
-                # Test accept
-                return {
-                    "message": "success",
-                    "data": {
-                        "caption": "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot",
-                        "likes": 150,
-                        "comments": 25
-                    },
-                    "api_used": "TEST_MODE_ACCEPT"
-                }
-        
-        # REAL API Integration
-        # Instagram shortcode olish
-        shortcode = extract_shortcode_from_url(video_url)
-        if not shortcode:
-            return {
-                "message": "error",
-                "error": "Noto'g'ri Instagram URL"
-            }
-        
-        logger.info(f"Shortcode topildi: {shortcode}")
-        
-        # REAL API so'rovi - RapidAPI yoki boshqa Instagram API
-        # Bu yerda sizning API key va endpoint'ingizni qo'shing
-        
-        # VARIANT 1: RapidAPI - Instagram API
-        api_key = os.environ.get('RAPIDAPI_KEY', '')
-        
-        if api_key:
-            headers = {
-                "X-RapidAPI-Key": api_key,
-                "X-RapidAPI-Host": "instagram-scraper-api2.p.rapidapi.com"
-            }
-            
-            api_url = f"https://instagram-scraper-api2.p.rapidapi.com/v1/post_info"
-            params = {"code_or_id_or_url": shortcode}
-            
-            response = requests.get(api_url, headers=headers, params=params, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                # API dan ma'lumotlarni parse qilish
-                caption = data.get('data', {}).get('caption', {}).get('text', '')
-                likes = data.get('data', {}).get('like_count', 0)
-                comments = data.get('data', {}).get('comment_count', 0)
-                
-                return {
-                    "message": "success",
-                    "data": {
-                        "caption": caption,
-                        "likes": likes,
-                        "comments": comments
-                    },
-                    "api_used": "RAPIDAPI_INSTAGRAM"
-                }
-        
-        # Agar API key yo'q bo'lsa - xatolik qaytarish
-        return {
-            "message": "error",
-            "error": "Instagram API key sozlanmagan. RAPIDAPI_KEY environment o'zgaruvchisini sozlang."
-        }
-            
-    except requests.exceptions.RequestException as e:
-        logger.error(f"API so'rov xatosi: {str(e)}")
-        return {
-            "message": "error",
-            "error": f"API xatosi: {str(e)}"
-        }
-    except Exception as e:
-        logger.error(f"Umumiy xato: {str(e)}")
-        return {
-            "message": "error",
-            "error": f"Xatolik yuz berdi: {str(e)}"
-        }
-
 @app.route('/check', methods=['POST'])
-def check_video_text():
-    """Instagram video tekshirish - asosiy endpoint"""
+def check_video():
+    """
+    Asosiy tekshirish endpoint
+    Caption matnini to'g'ridan-to'g'ri tekshiradi
+    """
     try:
         data = request.get_json()
         if not data:
@@ -243,132 +142,65 @@ def check_video_text():
                 'success': False,
                 'approved': False,
                 'error': 'JSON ma\'lumotlari talab qilinadi',
-                'warning': None,
                 'fine_amount': 0
             }), 400
-            
-        video_url = data.get('video_url')
         
-        if not video_url:
+        # Caption matnini olish
+        caption = data.get('caption', '')
+        
+        if not caption:
             return jsonify({
                 'success': False,
                 'approved': False,
-                'error': 'video_url maydoni talab qilinadi',
-                'warning': None,
+                'error': 'caption maydoni talab qilinadi',
                 'fine_amount': 0
             }), 400
         
-        logger.info(f"Video tekshirish so'rovi: {video_url}")
+        logger.info(f"📥 Yangi so'rov keldi")
         
-        # Instagram ma'lumotlarini olish
-        instagram_data = get_instagram_post_info(video_url)
-        
-        if instagram_data.get('message') != 'success':
-            error_msg = instagram_data.get('error', 'Instagram ma\'lumotlarini olish mumkin emas')
-            return jsonify({
-                'success': False,
-                'approved': False,
-                'error': error_msg,
-                'warning': 'API xatosi yuz berdi',
-                'fine_amount': 0
-            }), 400
-        
-        # API dan qaytgan ma'lumotlarni olish
-        api_data = instagram_data.get('data', {})
-        api_used = instagram_data.get('api_used', 'UNKNOWN')
-        
-        caption_text = api_data.get('caption', '')
-        like_count = api_data.get('likes', 0)
-        comment_count = api_data.get('comments', 0)
-        
-        logger.info(f"Caption text olingan: '{caption_text}'")
-        
-        # Hashtag va frazalarni tekshirish
-        has_required_content, found_items = check_required_content(caption_text)
+        # Matnni tekshirish
+        has_required, found_items = check_required_content(caption)
         
         # Javob tayyorlash
-        if has_required_content:
-            message = '✅ Video qabul qilindi - barcha shartlar bajarilgan!'
-            error = None
-            warning = None
-            fine_amount = 0
+        if has_required:
+            response = {
+                'success': True,
+                'approved': True,
+                'error': None,
+                'warning': None,
+                'fine_amount': 0,
+                'message': '🎉 Video qabul qilindi - barcha shartlar bajarilgan!',
+                'required_items_check': found_items,
+                'caption': caption
+            }
         else:
-            message = '❌ Video rad etildi - ba\'zi shartlar bajarilmagan'
-            error = 'Kerakli hashtag yoki frazalar topilmadi'
-            warning = '⚠️ Video rad etildi - jarima qo\'llaniladi'
-            fine_amount = 10000
+            response = {
+                'success': True,
+                'approved': False,
+                'error': 'Kerakli hashtag yoki frazalar topilmadi',
+                'warning': '⚠️ Video rad etildi - jarima qo\'llaniladi',
+                'fine_amount': 10000,
+                'message': '❌ Video rad etildi - ba\'zi shartlar bajarilmagan',
+                'required_items_check': found_items,
+                'caption': caption
+            }
         
-        response_data = {
-            'success': True,
-            'approved': has_required_content,
-            'error': error,
-            'warning': warning,
-            'fine_amount': fine_amount,
-            'api_used': api_used,
-            'required_items_check': found_items,
-            'post_stats': {
-                'likes': like_count,
-                'comments': comment_count
-            },
-            'caption': caption_text,
-            'message': message
-        }
-        
-        logger.info(f"Yakuniy javob: approved = {has_required_content}")
-        
-        return jsonify(response_data)
+        logger.info(f"📤 Javob yuborildi: approved={has_required}")
+        return jsonify(response)
         
     except Exception as e:
-        logger.error(f"Video check error: {str(e)}", exc_info=True)
+        logger.error(f"❌ Server xatosi: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'approved': False,
             'error': f"Server xatosi: {str(e)}",
-            'warning': None,
             'fine_amount': 0
         }), 500
 
-@app.route('/manual-check', methods=['POST'])
-def manual_check():
-    """Qo'lda matn kiritish orqali tekshirish"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'success': False,
-                'error': 'JSON ma\'lumotlari talab qilinadi'
-            }), 400
-            
-        caption_text = data.get('caption', '')
-        
-        if not caption_text:
-            return jsonify({
-                'success': False,
-                'error': 'caption maydoni talab qilinadi'
-            }), 400
-        
-        has_required_content, found_items = check_required_content(caption_text)
-        
-        return jsonify({
-            'success': True,
-            'approved': has_required_content,
-            'required_items_check': found_items,
-            'caption': caption_text,
-            'message': '✅ Matn qabul qilindi' if has_required_content else '❌ Matn rad etildi',
-            'fine_amount': 0 if has_required_content else 10000
-        })
-        
-    except Exception as e:
-        logger.error(f"Manual check error: {str(e)}", exc_info=True)
-        return jsonify({
-            'success': False,
-            'error': f"Server xatosi: {str(e)}"
-        }), 500
-
-@app.route('/test/accept', methods=['GET', 'POST'])
-def test_accept():
-    """Qabul qilinadigan test"""
-    caption = "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
+@app.route('/test/correct', methods=['GET', 'POST'])
+def test_correct():
+    """To'g'ri matn bilan test (qabul qilinadi)"""
+    caption = """Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"""
     
     has_required, found_items = check_required_content(caption)
     
@@ -378,16 +210,15 @@ def test_accept():
         'error': None,
         'warning': None,
         'fine_amount': 0,
-        'test_mode': True,
-        'message': '✅ Bu test video qabul qilinadi',
+        'test_type': 'CORRECT_TEXT',
+        'message': '✅ Bu test QABUL QILINADI',
         'required_items_check': found_items,
-        'post_stats': {'likes': 150, 'comments': 25},
         'caption': caption
     })
 
-@app.route('/test/reject', methods=['GET', 'POST'])
-def test_reject():
-    """Rad etiladigan test"""
+@app.route('/test/incorrect', methods=['GET', 'POST'])
+def test_incorrect():
+    """Noto'g'ri matn bilan test (rad etiladi)"""
     caption = "Bu oddiy video hech qanday kerakli hashtag yoq #boshqa #hashtag"
     
     has_required, found_items = check_required_content(caption)
@@ -398,21 +229,85 @@ def test_reject():
         'error': 'Kerakli hashtag yoki frazalar topilmadi',
         'warning': '⚠️ Video rad etildi - 10,000 so\'m jarima',
         'fine_amount': 10000,
-        'test_mode': True,
-        'message': '❌ Bu test video rad etildi',
+        'test_type': 'INCORRECT_TEXT',
+        'message': '❌ Bu test RAD ETILADI',
         'required_items_check': found_items,
-        'post_stats': {'likes': 100, 'comments': 15},
         'caption': caption
+    })
+
+@app.route('/test/partial', methods=['GET', 'POST'])
+def test_partial():
+    """Qisman to'g'ri matn bilan test (faqat hashtaglar)"""
+    caption = "Mening video #Telegramdagi #RekchiAi_bot bu yerda"
+    
+    has_required, found_items = check_required_content(caption)
+    
+    return jsonify({
+        'success': True,
+        'approved': has_required,
+        'error': 'Kerakli frazalar topilmadi' if not has_required else None,
+        'warning': '⚠️ Video rad etildi - frazalar yo\'q' if not has_required else None,
+        'fine_amount': 10000 if not has_required else 0,
+        'test_type': 'PARTIAL_TEXT',
+        'message': '❌ Bu test RAD ETILADI (faqat hashtag, frazalar yo\'q)',
+        'required_items_check': found_items,
+        'caption': caption
+    })
+
+@app.route('/test/all', methods=['GET'])
+def test_all():
+    """Barcha test holatlarini ko'rsatish"""
+    tests = []
+    
+    # Test 1: To'g'ri
+    caption1 = "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
+    approved1, items1 = check_required_content(caption1)
+    tests.append({
+        'test_name': 'Test 1: TO\'G\'RI MATN',
+        'approved': approved1,
+        'caption': caption1,
+        'items': items1
+    })
+    
+    # Test 2: Noto'g'ri
+    caption2 = "Bu oddiy video #boshqa #hashtag"
+    approved2, items2 = check_required_content(caption2)
+    tests.append({
+        'test_name': 'Test 2: NOTO\'G\'RI MATN',
+        'approved': approved2,
+        'caption': caption2,
+        'items': items2
+    })
+    
+    # Test 3: Qisman
+    caption3 = "Mening video #Telegramdagi #RekchiAi_bot"
+    approved3, items3 = check_required_content(caption3)
+    tests.append({
+        'test_name': 'Test 3: QISMAN TO\'G\'RI (faqat hashtag)',
+        'approved': approved3,
+        'caption': caption3,
+        'items': items3
+    })
+    
+    return jsonify({
+        'message': 'Barcha testlar',
+        'tests': tests,
+        'summary': {
+            'total': 3,
+            'passed': sum(1 for t in tests if t['approved']),
+            'failed': sum(1 for t in tests if not t['approved'])
+        }
     })
 
 @app.route('/')
 def root():
-    """Asosiy sahifa"""
+    """Asosiy sahifa - API ma'lumotlari"""
     return jsonify({
-        "message": "Instagram Video Validation API - MUKAMMAL VERSIYA",
-        "version": "3.0.0 - PERFECT",
-        "status": "Active ✅",
-        "description": "Mukammal tekshirish tizimi - har doim to'g'ri ishlaydi",
+        "app_name": "Instagram Video Validator",
+        "version": "4.0.0 - API SIZ MUKAMMAL",
+        "status": "🟢 ACTIVE",
+        "description": "Caption matnini to'g'ridan-to'g'ri tekshiradi, API kerak emas!",
+        
         "requirements": {
             "hashtags": [
                 "#Telegramdagi",
@@ -421,30 +316,54 @@ def root():
             "phrases": [
                 "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi?",
                 "Telegramga RekchiAi_bot ga kiring"
-            ]
+            ],
+            "note": "BARCHA 4 ta element (2 hashtag + 2 fraza) bo'lishi SHART!"
         },
+        
         "endpoints": {
-            "POST /check": "Asosiy tekshirish (video_url beriladi)",
-            "POST /manual-check": "Qo'lda matn tekshirish (caption beriladi)",
-            "GET /test/accept": "Qabul qilinadigan test",
-            "GET /test/reject": "Rad etiladigan test"
-        },
-        "api_setup": {
-            "note": "Real Instagram API ishlatish uchun RAPIDAPI_KEY environment o'zgaruvchisini sozlang",
-            "example": "export RAPIDAPI_KEY='your_api_key_here'"
-        },
-        "test_examples": {
-            "qabul_qilinadigan": {
-                "url": "https://example.com/test_accept",
-                "caption": "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
+            "POST /check": {
+                "description": "Asosiy tekshirish",
+                "method": "POST",
+                "body": {
+                    "caption": "Matn..."
+                },
+                "example": {
+                    "caption": "Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"
+                }
             },
-            "rad_etiladigan": {
-                "url": "https://example.com/test_reject",
-                "caption": "Bu oddiy video hech qanday kerakli hashtag yoq"
-            }
+            "GET /test/correct": "✅ To'g'ri matn testi",
+            "GET /test/incorrect": "❌ Noto'g'ri matn testi",
+            "GET /test/partial": "⚠️ Qisman to'g'ri matn testi",
+            "GET /test/all": "📊 Barcha testlar"
+        },
+        
+        "usage_examples": {
+            "curl": 'curl -X POST http://localhost:10000/check -H "Content-Type: application/json" -d \'{"caption":"Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot"}\'',
+            "python": """
+import requests
+
+response = requests.post('http://localhost:10000/check', json={
+    'caption': 'Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring. #Telegramdagi #RekchiAi_bot'
+})
+print(response.json())
+"""
         }
+    })
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Server holati"""
+    return jsonify({
+        'status': 'healthy',
+        'message': 'Server ishlayapti',
+        'version': '4.0.0'
     })
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
+    logger.info("=" * 70)
+    logger.info("🚀 Instagram Video Validator ishga tushdi!")
+    logger.info(f"📍 Port: {port}")
+    logger.info(f"🌐 URL: http://localhost:{port}")
+    logger.info("=" * 70)
     app.run(host="0.0.0.0", port=port, debug=True)
