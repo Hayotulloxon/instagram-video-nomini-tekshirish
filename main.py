@@ -11,7 +11,6 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# Logging sozlamalari
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -77,45 +76,28 @@ def get_caption_from_instagram(url):
         logger.warning("❌ Hech qanday usul bilan caption topilmadi")
         return ''
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"🌐 Internet xatosi: {e}")
-        return ''
     except Exception as e:
-        logger.error(f"❌ Umumiy xato: {e}")
+        logger.error(f"❌ Xato: {e}")
         return ''
-
-def check_required_text(caption, target_text):
-    """Caption ichida kerakli matn borligini tekshirish"""
-    if not caption:
-        return False
-    
-    caption_lower = caption.lower()
-    target_lower = target_text.lower()
-    
-    found = target_lower in caption_lower
-    
-    logger.info(f"🔍 Tekshirish: '{target_text}' -> {found}")
-    logger.info(f"📄 Caption uzunligi: {len(caption)} belgi")
-    
-    return found
 
 @app.route('/', methods=['GET'])
 def home():
     """API haqida ma'lumot"""
     return jsonify({
         'service': 'Instagram Caption Checker API',
-        'version': '1.0',
+        'version': '2.0',
         'description': 'Instagram post caption ichidagi matnni tekshiradi',
         'endpoints': {
             'POST /check': {
                 'description': 'Caption tekshirish',
                 'parameters': {
-                    'url': 'Instagram post URL (majburiy)',
-                    'target_text': 'Qidirilayotgan matn (ixtiyoriy)'
+                    'url': 'Instagram post URL',
+                    'video_url': 'Instagram video URL (alternativ)',
+                    'target_text': 'Qidirilayotgan matn'
                 }
             }
         },
-        'default_target_text': '#Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring.'
+        'default_target_text': 'RekchiAi_bot'
     })
 
 @app.route('/check', methods=['POST'])
@@ -130,14 +112,15 @@ def check_caption():
                 'error': 'JSON ma\'lumotlari talab qilinadi'
             }), 400
         
-        url = data.get('url', '').strip()
-        target_text = data.get('target_text', '#Videolaringizni rekga chiqaradigan suniy intelektni hohlaysizmi? Telegramga RekchiAi_bot ga kiring.')
+        # Ikkala parametrni qo'llab-quvvatlash
+        url = data.get('url') or data.get('video_url')
+        target_text = data.get('target_text', 'RekchiAi_bot')
         
         if not url:
             return jsonify({
                 'success': False,
                 'approved': False,
-                'error': 'URL maydoni talab qilinadi'
+                'error': 'URL maydoni talab qilinadi (url yoki video_url)'
             }), 400
         
         logger.info(f"🎬 Tekshirish so'rovi: {url}")
@@ -154,7 +137,7 @@ def check_caption():
             }), 404
         
         # Matnni tekshirish
-        has_target_text = check_required_text(caption, target_text)
+        has_target_text = target_text.lower() in caption.lower()
         
         response_data = {
             'success': True,
@@ -178,50 +161,15 @@ def check_caption():
             'error': f'Server xatosi: {str(e)}'
         }), 500
 
-@app.route('/test', methods=['GET'])
-def test_endpoint():
-    """Test uchun endpoint"""
-    test_url = "https://www.instagram.com/p/C1LqX5JMv7G/"
-    
-    try:
-        caption = get_caption_from_instagram(test_url)
-        
-        return jsonify({
-            'success': True,
-            'test_url': test_url,
-            'caption_found': bool(caption),
-            'caption_preview': caption[:200] + '...' if caption else '',
-            'caption_length': len(caption) if caption else 0
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
 @app.route('/health', methods=['GET'])
 def health():
     """Server holati"""
     return jsonify({
         'status': 'ok',
         'service': 'Instagram Caption Checker',
-        'version': '1.0'
+        'version': '2.0'
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    
-    print("=" * 60)
-    print("Instagram Caption Checker API")
-    print("=" * 60)
-    print(f"🚀 Server http://localhost:{port} da ishga tushmoqda...")
-    print("\n📋 Endpoint'lar:")
-    print("  POST /check - Asosiy tekshirish endpoint'i")
-    print("  GET  /test  - Test endpoint'i")
-    print("  GET  /health - Server holati")
-    print("\n🔧 Talablar:")
-    print("  pip install flask flask-cors requests beautifulsoup4")
-    print("\n" + "=" * 60)
-    
     app.run(host='0.0.0.0', port=port, debug=False)
